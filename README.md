@@ -1,5 +1,5 @@
 # MISP Air-Gapped <!-- omit in toc -->
-MISP Air-Gapped is a project built on the [MISP](https://github.com/MISP/MISP) and [LXD](https://ubuntu.com/lxd), designed to be used for air-gapped systems. The MISP installation in this project is based on the `INSTALL.sh` script in the [MISP repository](https://github.com/MISP/MISP).
+MISP Air-Gapped is a project built on the [MISP](https://github.com/MISP/MISP) and [LXD](https://ubuntu.com/lxd), designed to be used for air-gapped systems. The MISP installation in this project is based on the `INSTALL.sh` script available in the [MISP repository](https://github.com/MISP/MISP). 
 
 ## Table of Contents <!-- omit in toc -->
 - [Requirements](#requirements)
@@ -16,11 +16,7 @@ MISP Air-Gapped is a project built on the [MISP](https://github.com/MISP/MISP) a
 
 
 ## Usage
-First you have to [install LXD](https://ubuntu.com/lxd/install) on your air-gapped host system. After that run the following command to configure LXD:
-```bash
-lxd init
-```
->**Note**: You can use default configs
+First you have to [install LXD](https://ubuntu.com/lxd/install) on your air-gapped host system.
 
 In order to be able to pull the images from an image server you should also install LXD on a networked system. 
 
@@ -51,11 +47,11 @@ After the install you can proceed with the followig steps:
     ```
     >**Note**: Rename the exported `.tar` files immediately with meaningful names to keep track of their corresponding components.
 
-5. **Transfer images and repo to air-gapped system**:
+4. **Transfer images and repo to air-gapped system**:
 
    Transfer the exported images and the whole `deploy` directory to your air gapped system.
 
-6. **Configure .env file**:
+5. **Configure .env file**:
    
    You can use the `template.env` file to create a `.env` file:
    ```
@@ -64,7 +60,7 @@ After the install you can proceed with the followig steps:
    After that you can modify the `.env` depending on your needs.
    >**Note**: We strongly recommend changing credentials in the `.env` file.
 
-7. **Run install script**:
+6. **Run install script**:
    
    On you host machine you can run the `install.sh` script:
    ```bash
@@ -82,7 +78,7 @@ lxc image export misp .
 ```
 After that you have to transfer the file to your air-gapped system. On your system adjust the path of the `MISP_IMAGE` to the new `.tar` file and run `update.sh`:
 ```bash
-bash update.sh <backup-name>
+bash update.sh <backup-name> <path-to-new-image>
 ```
 >**Info**: The `update.sh` script will stop the current instance, renaming it using the `backup-name` argument. The old instance remains on the system for potential reversion. Configuration files and logs will be copied to the new instance.
 
