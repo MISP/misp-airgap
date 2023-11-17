@@ -1,11 +1,18 @@
 #!/bin/bash
 
+# Color codes
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
 check_and_set_variable() {
     local variable_name="$1"
     local default_value="$2"
 
     if [ -z "${!variable_name}" ]; then
-        echo "$variable_name is not set, using default value '$default_value'"
+        echo -e "${YELLOW}$variable_name is not set, using default value ${NC}'$default_value'"
         eval "$variable_name=\"$default_value\""
     fi
 }
@@ -33,7 +40,7 @@ check_resource_exists() {
     esac
 
     if [ $? -eq 0 ]; then
-        echo "Error: $resource_type '$resource_name' already exists."
+        echo -e "${RED}Error: $resource_type '$resource_name' already exists.${NC}"
         exit 1
     fi
 }
@@ -44,7 +51,7 @@ wait_for_container() {
     while true; do
         status=$(lxc list --format=json | jq -e --arg name "$container_name"  '.[] | select(.name == $name) | .status')
         if [ $status = "\"Running\"" ]; then
-            echo "$container_name is running."
+            echo -e "${BLUE}$container_name ${GREEN}is running.${NC}"
             break
         fi
         echo "Waiting for $container_name container to start."
@@ -76,7 +83,7 @@ check_resource_exists "network" "$NETWORK_NAME"
 lxc project create "$PROJECT_NAME"
 lxc project switch "$PROJECT_NAME"
 
-# Container are not unique in over different projects
+# Container are not unique across different projects
 check_and_set_variable "MYSQL_CONTAINER" "mysql"
 check_and_set_variable "MISP_CONTAINER" "app"
 check_and_set_variable "REDIS_CONTAINER" "redis"
@@ -111,13 +118,14 @@ lxc image import $MYSQL_IMAGE --alias mysql
 lxc image import $REDIS_IMAGE --alias redis
 
 # Launch Container
-lxc init misp $MISP_CONTAINER --profile=$APP_PROFILE 
+echo "Create containers ..."
+lxc init misp $MISP_CONTAINER --profile=$APP_PROFILE > /dev/null 2>&1
 lxc network attach $NETWORK_NAME $MISP_CONTAINER eth0 eth0
 lxc start $MISP_CONTAINER
-lxc init mysql $MYSQL_CONTAINER --profile=$DB_PROFILE
+lxc init mysql $MYSQL_CONTAINER --profile=$DB_PROFILE > /dev/null 2>&1
 lxc network attach $NETWORK_NAME $MYSQL_CONTAINER eth0 eth0
 lxc start $MYSQL_CONTAINER
-lxc init redis $REDIS_CONTAINER --profile=$DB_PROFILE
+lxc init redis $REDIS_CONTAINER --profile=$DB_PROFILE > /dev/null 2>&1
 lxc network attach $NETWORK_NAME $REDIS_CONTAINER eth0 eth0
 lxc start $REDIS_CONTAINER
 
@@ -148,7 +156,7 @@ lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mysql
 ## Check connection + import schema
 table_count=$(lxc exec $MISP_CONTAINER -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
 if [ $? -eq 0 ]; then
-                echo "Connected to database successfully!"
+                echo -e "${GREEN}Connected to database successfully!${NC}"
                 if [ $table_count -lt 73 ]; then
                     echo "Database misp is empty, importing tables from misp container ..."
                     lxc exec $MISP_CONTAINER -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < /var/www/MISP/INSTALL/MYSQL.sql"
@@ -156,7 +164,7 @@ if [ $? -eq 0 ]; then
                     echo "Database misp available"
                 fi
 else
-    echo "ERROR:"
+    echo -e "${RED}ERROR${NC}:"
     echo $table_count
 fi
 
@@ -171,8 +179,8 @@ lxc exec $REDIS_CONTAINER -- sed -i "s/^bind .*/bind 0.0.0.0/" "/etc/redis/redis
 lxc exec $REDIS_CONTAINER -- systemctl restart redis-server
 
 
-echo "Setup finished!"
+echo -e "${GREEN}Setup finished!${NC}"
 
 misp_ip=$(lxc list $MISP_CONTAINER --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
 
-echo "MISP is up and running on $misp_ip"
+echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
