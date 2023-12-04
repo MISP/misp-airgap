@@ -66,16 +66,17 @@ After the install you can proceed with the followig steps:
    | `PROJECT_NAME`         | misp-project-<creation_time>                | Name of the LXD project used to organize and run the containers.                                                |
    | `MISP_IMAGE`           | ../build/images/misp.tar.gz                | The exported image file containing the configuration and setup of the MISP instance.                             |
    | `MISP_CONTAINER`       | misp-<creation_time>                        | The name of the container responsible for running the MISP application.                                          |
-   | `MYSQL`                | true                                       | If set to true, a MariaDB container will be created, providing a database for the MISP container.                |
    | `MYSQL_IMAGE`          | ../build/images/mysql.tar.gz               | The exported image file of a MariaDB instance, containing the necessary configurations.                          |
    | `MYSQL_CONTAINER`      | mysql-<creation_time>                       | The name of the container running the MariaDB database for MISP.                                                 |
    | `MYSQL_DATABASE`       | misp                                       | The name of the database used by the MISP application.                                                           |
    | `MYSQL_USER`           | misp                                       | The database user for MISP to interact with the MariaDB database.                                                |
    | `MYSQL_PASSWORD`       | misp                                       | The password associated with the MISP database user.                                                             |
    | `MYSQL_ROOT_PASSWORD`  | misp                                       | The root user password for MariaDB.                                                                              |
-   | `REDIS`                | true                                       | If set to true, a Redis container will be created, providing caching for the MISP application.                   |
    | `REDIS_IMAGE`          | ../build/images/redis.tar.gz               | The exported image file for the Redis instance, including necessary configurations.                              |
    | `REDIS_CONTAINER`      | redis-<creation_time>                       | The name of the container running the Redis server for MISP.                                                     |
+   |  `MODULES`             | true                             | If set a container with MISP Modules gets set up.|
+   |  `MODULES_IMAGE`        | ../build/images/modules.tar.gz                 | The exported image file of a MISP Modules instance, containing the necessary configurations. |
+   |  `MODULES_CONTAINER`    | modules-<creation_time>                    | The name of the container running MISP Modules|
    | `APP_PARTITION`        |                                            | Dedicated partition for the sorage of the  MISP container                                                        |
    | `DB_PARTITION`         |                                            | Dedicated partition for the sorage of the  database container(s)                                                 |
    | `PROD`                 | false                                      | If set to true, the MISP application runs in production mode, activating the `islive` option and adjusting settings accordingly.|
