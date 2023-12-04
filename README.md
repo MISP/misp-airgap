@@ -1,22 +1,23 @@
 # MISP Air-Gapped <!-- omit in toc -->
-MISP Air-Gapped is a project built on the [MISP](https://github.com/MISP/MISP) and [LXD](https://ubuntu.com/lxd), designed to be used for air-gapped systems. The MISP installation in this project is based on the `INSTALL.sh` script available in the [MISP repository](https://github.com/MISP/MISP). 
+MISP Air-Gapped is a project built on [MISP](https://github.com/MISP/MISP) and [LXD](https://ubuntu.com/lxd), designed to be used for air-gapped systems. For that LXD container images are created and compressed to `.tar` files so that they can be transferred to an air-gapped environment. The MISP installation in this project is based on the `INSTALL.sh` script available in the [MISP repository](https://github.com/MISP/MISP). 
 
 ## Table of Contents <!-- omit in toc -->
 - [Requirements](#requirements)
 - [Usage](#usage)
 - [Update](#update)
-- [Rollback](#rollback)
 - [Build](#build)
 
 
 ## Requirements
-- Ubuntu:20.04 (tested)
-- LXD 5.19 (tested)
-- jq-1.6
+You setup should consits of at least two systems. 
+- Ubuntu 22.04
+- LXD 5.19 
+- jq 1.6
+- yq 4.35.2
 
 
 ## Usage
-First you have to [install LXD](https://ubuntu.com/lxd/install) on your air-gapped host system.
+First you have to [install LXD](https://ubuntu.com/lxd/install) on your air-gapped host system. Additionally you should install [jq](https://jqlang.github.io/jq/) and [yq](https://github.com/mikefarah/yq).
 
 In order to be able to pull the images from an image server you should also install LXD on a networked system. 
 
@@ -45,30 +46,43 @@ After the install you can proceed with the followig steps:
     lxc image export mysql .
     lxc image export redis .
     ```
-    >**Note**: Rename the exported `.tar` files immediately with meaningful names to keep track of their corresponding components.
+    >**Note**: Renaming the exported `.tar` files with meaningful names can be helpful to keep track of their corresponding components.
 
 4. **Transfer images and repo to air-gapped system**:
 
    Transfer the exported images and the whole `deploy` directory to your air gapped system.
 
-5. **Configure .env file**:
-   
-   You can use the `template.env` file to create a `.env` file:
-   ```
-   cp template.env .env
-   ```
-   After that you can modify the `.env` depending on your needs.
-   >**Note**: We strongly recommend changing credentials in the `.env` file.
-
-6. **Run install script**:
+5. **Run install script**:
    
    On you host machine you can run the `install.sh` script:
    ```bash
    bash install.sh
    ```
 
-After completing these steps, MISP should be up and running. Confirm this by running `lxc list` and accessing the web interface using the IP of the MISP container.
+   During the installation, set the necessary variables to configure the process:
+   
+   | Variable               | Default Value                                      | Description                                                                                                     |
+   |------------------------|--------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+   | `PROJECT_NAME`         | misp-project-<creation_time>                | Name of the LXD project used to organize and run the containers.                                                |
+   | `MISP_IMAGE`           | ../build/images/misp.tar.gz                | The exported image file containing the configuration and setup of the MISP instance.                             |
+   | `MISP_CONTAINER`       | misp-<creation_time>                        | The name of the container responsible for running the MISP application.                                          |
+   | `MYSQL`                | true                                       | If set to true, a MariaDB container will be created, providing a database for the MISP container.                |
+   | `MYSQL_IMAGE`          | ../build/images/mysql.tar.gz               | The exported image file of a MariaDB instance, containing the necessary configurations.                          |
+   | `MYSQL_CONTAINER`      | mysql-<creation_time>                       | The name of the container running the MariaDB database for MISP.                                                 |
+   | `MYSQL_DATABASE`       | misp                                       | The name of the database used by the MISP application.                                                           |
+   | `MYSQL_USER`           | misp                                       | The database user for MISP to interact with the MariaDB database.                                                |
+   | `MYSQL_PASSWORD`       | misp                                       | The password associated with the MISP database user.                                                             |
+   | `MYSQL_ROOT_PASSWORD`  | misp                                       | The root user password for MariaDB.                                                                              |
+   | `REDIS`                | true                                       | If set to true, a Redis container will be created, providing caching for the MISP application.                   |
+   | `REDIS_IMAGE`          | ../build/images/redis.tar.gz               | The exported image file for the Redis instance, including necessary configurations.                              |
+   | `REDIS_CONTAINER`      | redis-<creation_time>                       | The name of the container running the Redis server for MISP.                                                     |
+   | `APP_PARTITION`        |                                            | Dedicated partition for the sorage of the  MISP container                                                        |
+   | `DB_PARTITION`         |                                            | Dedicated partition for the sorage of the  database container(s)                                                 |
+   | `PROD`                 | false                                      | If set to true, the MISP application runs in production mode, activating the `islive` option and adjusting settings accordingly.|
 
+   >**Note**: It is crucial to **modify all default credentials** when using this installation in a production environment. Specifically, if the PROD variable is set to true, the installer will not accept default values. Additionally, ensure that the paths to your image files align with the specifics of your individual setup.
+
+After completing these steps, MISP should be up and running. Access the MISP web interface by navigating to the IP address displayed in the terminal after the installation process is finished. Alternatively, you can identify the IP addresses of all running containers within the project by executing the command `lxc list`. 
 
 ## Update
 To update the system you have to pull a new misp image and export it as a  `.tar` file:
@@ -76,21 +90,13 @@ To update the system you have to pull a new misp image and export it as a  `.tar
 lxc image copy <server>:misp local:
 lxc image export misp .
 ```
-After that you have to transfer the file to your air-gapped system. On your system adjust the path of the `MISP_IMAGE` to the new `.tar` file and run `update.sh`:
+After that you have to transfer the file to your air-gapped system. On that system you can run `update.sh`:
 ```bash
-bash update.sh <backup-name> <path-to-new-image>
+bash update.sh <container-name> <path-to-new-image>
 ```
->**Info**: The `update.sh` script will stop the current instance, renaming it using the `backup-name` argument. The old instance remains on the system for potential reversion. Configuration files and logs will be copied to the new instance.
+>**Info**: The `update.sh` script will copy a bunch of config files from the old instance to the new updated one. However ... 
 
-
-## Rollback
-To roll back to a previous state you can use the `rollback.sh` file. 
-```bash
-bash rollback.sh <backup-container>
-```
-This script will **delete** the current instance and roll back to the specifed Backup instance.
->**Warning**: All changes made after th state of the backup machine will be lost!
-
+php.ini
 
 ## Build
 Instead of pulling the images from a image server you can build them on your own by using the respective scripts in the `build` folder. 
