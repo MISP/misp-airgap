@@ -1,5 +1,28 @@
 #!/bin/bash
 
+# Color codes
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+VIOLET='\033[0;35m'
+NC='\033[0m' # No Color
+
+error() {
+    local msg=$1
+    echo -e "${RED}Error: $msg${NC}" > /dev/tty
+}
+
+warn() {
+    local msg=$1
+    echo -e "${Yellow}Warning: $msg" > /dev/tty
+}
+
+okay() {
+    local msg=$1
+    echo -e "${GREEN}Warning: $msg" > /dev/tty
+}
+
 generateName(){
     local name="$1"
     echo "${name}-$(date +%Y%m%d%H%M%S)"
@@ -34,14 +57,12 @@ installMISPModules(){
     ${LXC_EXEC} -- apt install python3-pip -y
     ${LXC_EXEC} -- pip install --upgrade pip
     ${LXC_EXEC} -- sudo apt-get install python3-dev python3-pip libpq5 libjpeg-dev tesseract-ocr libpoppler-cpp-dev imagemagick virtualenv libopencv-dev zbar-tools libzbar0 libzbar-dev libfuzzy-dev build-essential -y
-    ${LXC_EXEC} -- mkdir /var/www
-    ${LXC_EXEC} -- mkdir /var/www/MISP
+    # ${LXC_EXEC} -- mkdir /var/www
+    ${LXC_EXEC} -- mkdir -p /var/www/MISP
     ${LXC_EXEC} -- sudo chown -R www-data:www-data /var/www/MISP/
     ${LXC_EXEC} -- sudo -u www-data virtualenv -p python3 /var/www/MISP/venv
-    #${LXC_EXEC} -- cd /usr/local/src/
     ${LXC_EXEC} --cwd=/usr/local/src/ -- sudo chown -R www-data: .
     ${LXC_EXEC} --cwd=/usr/local/src/ -- sudo -u www-data git clone https://github.com/MISP/misp-modules.git
-    #${LXC_EXEC} -- cd misp-modules
     ${LXC_EXEC} --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install -I -r REQUIREMENTS
     ${LXC_EXEC} --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install .
     # Start misp-modules as a service
@@ -91,7 +112,7 @@ checkSoftwareDependencies() {
 }
 
 
-# Build script
+# Main
 checkSoftwareDependencies
 if [ "$#" -ne 2 ]; then
     echo "Usage: $0 <image-name> <outputdir>"
@@ -108,6 +129,16 @@ setVars
 setupLXD
 lxc launch ubuntu:22.04 "$CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
 installMISPModules
+sleep 2
+if ${LXC_EXEC} -- "systemctl is-active --quiet misp-modules"; then
+    okay "Service misp-modules is running."
+else
+    error "Service misp-modules is not running."
+    cleanupProject
+    lxc storage delete "$STORAGE_POOL_NAME"
+    lxc network delete "$NETWORK_NAME"
+    exit 1
+fi
 createImage
 # cleanupProject
 # lxc storage delete "$STORAGE_POOL_NAME"
