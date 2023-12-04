@@ -8,21 +8,33 @@ RED='\033[0;31m'
 VIOLET='\033[0;35m'
 NC='\033[0m' # No Color
 
-debug () {
-    local step=$1
-    echo -e "${BLUE}Step $1:${NC} ${GREEN}$2${NC}" > /dev/tty
-    if [[ ! -z ${DEBUG} ]]; then
-        NO_PROGRESS=1
-        echo -e "${RED}Debug Mode${NC}, press ${LBLUE}enter${NC} to continue..." > /dev/tty
-        exec 3>&1
-        read
-    else
-        # [Set up conditional redirection](https://stackoverflow.com/questions/8756535/conditional-redirection-in-bash)
-        #exec 3>&1 &>/dev/null
-        :
-    fi
+setVars(){
+    WWW_USER="www-data"
+    SUDO_WWW="sudo -H -u ${WWW_USER} "
+    PATH_TO_MISP="/var/www/MISP"
+    CAKE="${PATH_TO_MISP}/app/Console/cake"
+    MISP_BASEURL="${MISP_BASEURL:-""}"
+    LXC_MISP="lxc exec ${MISP_CONTAINER}"
+    LXC_MISP="lxc exec ${MISP_CONTAINER}"
+    LXC_REDIS="lxc exec ${REDIS_CONTAINER}"
+    LXC_MYSQL="lxc exec ${MYSQL_CONTAINER}"
 }
 
+info () {
+    local step=$1
+    local msg=$2
+    echo -e "${BLUE}Step $step:${NC} ${GREEN}$msg${NC}" > /dev/tty
+}
+
+error() {
+    local msg=$1
+    echo -e "${RED}Error: $msg${NC}" > /dev/tty
+}
+
+warn() {
+    local msg=$1
+    echo -e "${Yellow}Warning: $msg" > /dev/tty
+}
 
 coreCAKE () {
     # IF you have logged in prior to running this, it will fail but the fail is NON-blocking
@@ -169,12 +181,11 @@ coreCAKE () {
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.proposals_block_attributes" false
 
   # Redis block
-    if $redis; then
-        #lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin setSetting MISP.redis_host $REDIS_CONTAINER.lxd"
-        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
-    else
-        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "127.0.0.1"
-    fi
+    # if $redis; then
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
+    # else
+    #     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "127.0.0.1"
+    # fi
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" 6379
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_database" 13
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_password" ""
@@ -226,7 +237,6 @@ coreCAKE () {
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.advanced_authkeys" false
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.password_policy_length" 12
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.password_policy_complexity" '/^((?=.*\d)|(?=.*\W+))(?![\n])(?=.*[A-Z])(?=.*[a-z]).*$|.{16,}/'
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.self_registration_message" "If you would like to send us a registration request, please fill out the form below. Make sure you fill out as much information as possible in order to ease the task of the administrators."
 
     # Appease the security audit, #hardening
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.disable_browser_cache" true
@@ -262,15 +272,15 @@ setupGnuPG() {
     GPG_PASSPHRASE="$(openssl rand -hex 32)"
 
     # Check if the .gnupg directory exists on the LXD container
-    lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "[ -d $MISP_PATH/MISP/.gnupg ]" && {
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "[ -d $MISP_PATH/MISP/.gnupg ]" && {
         echo "Existing key found on the container. Deleting..."
-        lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "rm -rf $MISP_PATH/MISP/.gnupg"
+        ${LXC_MISP} -- sudo -u www-data -H sh -c "rm -rf $MISP_PATH/MISP/.gnupg"
         echo "Existing key deleted"
     }
 
     # The email address should match the one set in the config.php
     # set in the configuration menu in the administration menu configuration file
-    lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "echo \"%echo Generating a default key
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "echo \"%echo Generating a default key
         Key-Type: default
         Key-Length: $GPG_KEY_LENGTH
         Subkey-Type: default
@@ -283,11 +293,11 @@ setupGnuPG() {
         %commit
     %echo done\" > /tmp/gen-key-script"
 
-    lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "gpg --homedir $MISP_PATH/MISP/.gnupg --batch --gen-key /tmp/gen-key-script"
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $MISP_PATH/MISP/.gnupg --batch --gen-key /tmp/gen-key-script"
 
     # Export the public key to the webroot
-    lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "gpg --homedir $MISP_PATH/MISP/.gnupg --export --armor $GPG_EMAIL_ADDRESS | tee $MISP_PATH/MISP/app/webroot/gpg.asc"
-    lxc exec $MISP_CONTAINER -- rm /tmp/gen-key-script
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $MISP_PATH/MISP/.gnupg --export --armor $GPG_EMAIL_ADDRESS | tee $MISP_PATH/MISP/app/webroot/gpg.asc"
+    ${LXC_MISP} -- rm /tmp/gen-key-script
 }
 
 checkRessourceExist() {
@@ -352,7 +362,7 @@ checkSoftwareDependencies() {
     done
 }
 
-askUser(){
+getIntallationConfig(){
     # Installer output
     echo
     echo "################################################################################"
@@ -377,7 +387,7 @@ askUser(){
     default_misp_img="../build/images/misp.tar.gz"
     default_misp_name=$(generateName "misp")
 
-    default_mysql="yes"
+#    default_mysql="yes"
     default_mysql_img="../build/images/mysql.tar.gz"
     default_mysql_name=$(generateName "mysql")
     default_mysql_user="misp"
@@ -385,9 +395,13 @@ askUser(){
     default_mysql_db="misp"
     default_mysql_root_pwd="misp"
 
-    default_redis="yes"
+#    default_redis="yes"
     default_redis_img="../build/images/redis.tar.gz"
     default_redis_name=$(generateName "redis")
+
+    default_modules="yes"
+    default_modules_img="../build/images/modules.tar.gz"
+    default_modules_name=$(generateName "modules")
 
     default_app_partition=""
     default_db_partition=""
@@ -416,67 +430,89 @@ askUser(){
         exit 1
     fi
 
-
     # Ask for mysql installation
-    read -p "Do you want to install a mysql instance (y/n, default: $default_mysql): " mysql
-    mysql=${mysql:-$default_mysql}
-    mysql=$(echo "$mysql" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
-    if $mysql; then
-        # Ask for image
-        read -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
-        mysql_img=${mysql_img:-$default_mysql_img}
-        if [ ! -f "$mysql_img" ]; then
-            echo -e "${RED}Error${NC}: The specified file does not exist."
-            exit 1
-        fi
-        MYSQL_IMAGE=$mysql_img
-        # Ask for name
-        read -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
-        MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
-        if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
-        echo -e "${RED}Error: Container '$MYSQL_CONTAINER' already exists.${NC}"
+    # read -p "Do you want to install a mysql instance (y/n, default: $default_mysql): " mysql
+    # mysql=${mysql:-$default_mysql}
+    # mysql=$(echo "$mysql" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    # if $mysql; then
+    # Ask for image
+    read -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
+    mysql_img=${mysql_img:-$default_mysql_img}
+    if [ ! -f "$mysql_img" ]; then
+        echo -e "${RED}Error${NC}: The specified file does not exist."
         exit 1
-        fi
-        # Ask for credentials
-        read -p "MySQL Database (default: $default_mysql_db): " mysql_db
-        MYSQL_DATABASE=${mysql_db:-$default_mysql_db}
-        read -p "MySQL User (default: $default_mysql_user): " mysql_user
-        MYSQL_USER=${mysql_user:-$default_mysql_user}
-        read -p "MySQL User Password (default: $default_mysql_pwd): " mysql_pwd
-        MYSQL_PASSWORD=${mysql_pwd:-$default_mysql_pwd}
-        read -p "MySQL Root Password (default: $default_mysql_root_pwd): " mysql_root_pwd
-        MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
     fi
+    MYSQL_IMAGE=$mysql_img
+    # Ask for name
+    read -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
+    MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
+    if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
+    echo -e "${RED}Error: Container '$MYSQL_CONTAINER' already exists.${NC}"
+    exit 1
+    fi
+    # Ask for credentials
+    read -p "MySQL Database (default: $default_mysql_db): " mysql_db
+    MYSQL_DATABASE=${mysql_db:-$default_mysql_db}
+    read -p "MySQL User (default: $default_mysql_user): " mysql_user
+    MYSQL_USER=${mysql_user:-$default_mysql_user}
+    read -p "MySQL User Password (default: $default_mysql_pwd): " mysql_pwd
+    MYSQL_PASSWORD=${mysql_pwd:-$default_mysql_pwd}
+    read -p "MySQL Root Password (default: $default_mysql_root_pwd): " mysql_root_pwd
+    MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
+    # fi
 
     # Ask for redis installation 
-    read -p "Do you want to install a Redis instance (y/n, default: $default_redis): " redis
-    redis=${redis:-$default_redis}
-    redis=$(echo "$redis" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
-    if $redis; then
+    # read -p "Do you want to install a Redis instance (y/n, default: $default_redis): " redis
+    # redis=${redis:-$default_redis}
+    # redis=$(echo "$redis" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    # if $redis; then
+    # Ask for image
+    read -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
+    redis_img=${redis_img:-$default_redis_img}
+    if [ ! -f "$redis_img" ]; then
+        echo -e "${RED}Error${NC}: The specified file does not exist."
+        exit 1
+    fi
+    REDIS_IMAGE=$redis_img
+    # Ask for name
+    read -p "Name of the Redis container (default: $default_redis_name): " redis_name
+    REDIS_CONTAINER=${redis_name:-$default_redis_name}
+    if checkRessourceExist "container" "$REDIS_CONTAINER"; then
+        echo -e "${RED}Error: Container '$REDIS_CONTAINER' already exists.${NC}"
+        exit 1
+    fi
+    # fi
+
+    # Ask for modules installation
+    read -p "Do you want to install MISP Modules (y/n, default: $default_modules): " modules
+    modules=${modules:-$default_modules}
+    modules=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    if $modules; then
         # Ask for image
-        read -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
-        redis_img=${redis_img:-$default_redis_img}
-        if [ ! -f "$redis_img" ]; then
-            echo -e "${RED}Error${NC}: The specified file does not exist."
+        read -e -p "What is the path to the Modules image (default: $default_modules_img): " modules_img
+        modules_img=${modules_img:-$default_modules_img}
+        if [ ! -f "$modules_img" ]; then
+            error "The specified file does not exist."
             exit 1
         fi
-        REDIS_IMAGE=$redis_img
+        MODULES_IMAGE=$modules_img
         # Ask for name
-        read -p "Name of the Redis container (default: $default_redis_name): " redis_name
-        REDIS_CONTAINER=${redis_name:-$default_redis_name}
-        if checkRessourceExist "container" "$REDIS_CONTAINER"; then
-            echo -e "${RED}Error: Container '$REDIS_CONTAINER' already exists.${NC}"
+        read -p "Name of the Modules container (default: $default_modules_name): " modules_name
+        MODULES_CONTAINER=${modules_name:-$default_modules_name}
+        if checkRessourceExist "container" "$MODULES_CONTAINER"; then
+            error "Container '$MODULES_CONTAINER' already exists."
             exit 1
         fi
+
     fi
 
     # Ask for dedicated partitions
     read -p "Dedicated partition for MISP container (leave blank if none): " app_partition
     APP_PARTITION=${app_partition:-$default_app_partition}
-    if $mysql || $redis; then
-        read -p "Dedicated partition for DB container(s) (leave blank if none): " db_partition
-        DB_PARTITION=${db_partition:-$default_db_partition}
-    fi
+    # if $mysql || $redis; then
+    read -p "Dedicated partition for DB container (leave blank if none): " db_partition
+    DB_PARTITION=${db_partition:-$default_db_partition}
+    # fi
 
     # Ask if used in prod
     read -p "Do you want to use this setup in production (y/n, default: $default_prod): " prod
@@ -485,29 +521,47 @@ askUser(){
 
     # Output values set by the user
     echo -e "\nValues set:"
-    echo "-----------------------------------------------"
+    echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "PROJECT_NAME: ${GREEN}$PROJECT_NAME${NC}"
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "${BLUE}MISP:${NC}"
     echo -e "MISP_IMAGE: ${GREEN}$MISP_IMAGE${NC}"
     echo -e "MISP_CONTAINER: ${GREEN}$MISP_CONTAINER${NC}"
-    echo -e "MYSQL: ${GREEN}$mysql${NC}"
-    if $mysql; then
-        echo -e "MYSQL_IMAGE: ${GREEN}$MYSQL_IMAGE${NC}"
-        echo -e "MYSQL_CONTAINER: ${GREEN}$MYSQL_CONTAINER${NC}"
-        echo -e "MYSQL_DATABASE: ${GREEN}$MYSQL_DATABASE${NC}"
-        echo -e "MYSQL_USER: ${GREEN}$MYSQL_USER${NC}"
-        echo -e "MYSQL_PASSWORD: ${GREEN}$MYSQL_PASSWORD${NC}"
-        echo -e "MYSQL_ROOT_PASSWORD: ${GREEN}$MYSQL_ROOT_PASSWORD${NC}"
+    #echo -e "MYSQL: ${GREEN}$mysql${NC}"
+    # if $mysql; then
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "${BLUE}MySQL:${NC}"
+    echo -e "MYSQL_IMAGE: ${GREEN}$MYSQL_IMAGE${NC}"
+    echo -e "MYSQL_CONTAINER: ${GREEN}$MYSQL_CONTAINER${NC}"
+    echo -e "MYSQL_DATABASE: ${GREEN}$MYSQL_DATABASE${NC}"
+    echo -e "MYSQL_USER: ${GREEN}$MYSQL_USER${NC}"
+    echo -e "MYSQL_PASSWORD: ${GREEN}$MYSQL_PASSWORD${NC}"
+    echo -e "MYSQL_ROOT_PASSWORD: ${GREEN}$MYSQL_ROOT_PASSWORD${NC}"
+    # fi
+    #echo -e "REDIS: ${GREEN}$redis${NC}"
+    # if $redis; then
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "${BLUE}Redis:${NC}"
+    echo -e "REDIS_IMAGE: ${GREEN}$REDIS_IMAGE${NC}"
+    echo -e "REDIS_CONTAINER: ${GREEN}$REDIS_CONTAINER${NC}"
+    # fi
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "${BLUE}MISP Modules:${NC}"
+    echo -e "MISP Modules: ${GREEN}$modules${NC}"
+    if $modules; then
+        echo -e "MODULES_IMAGE: ${GREEN}$MODULES_IMAGE${NC}"
+        echo -e "MODULES_CONTAINER: ${GREEN}$MODULES_CONTAINER${NC}"
     fi
-    echo -e "REDIS: ${GREEN}$redis${NC}"
-    if $redis; then
-        echo -e "REDIS_IMAGE: ${GREEN}$REDIS_IMAGE${NC}"
-        echo -e "REDIS_CONTAINER: ${GREEN}$REDIS_CONTAINER${NC}"
-    fi
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "${BLUE}Storage:${NC}"
     echo -e "APP_PARTITION: ${GREEN}$APP_PARTITION${NC}"
-    if $mysql || $redis; then
-        echo -e "DB_PARTITION: ${GREEN}$DB_PARTITION${NC}"
-    fi
+    # if $mysql || $redis; then
+    echo -e "DB_PARTITION: ${GREEN}$DB_PARTITION${NC}"
+    # fi
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "${BLUE}Security:${NC}"
     echo -e "PROD: ${GREEN}$PROD${NC}\n"
+    echo "--------------------------------------------------------------------------------------------------------------------"
 
     # Ask for confirmation
     read -p "Do you want to proceed with the installation? (y/n): " confirm
@@ -519,16 +573,6 @@ askUser(){
 
 }
 
-setVars(){
-    WWW_USER="www-data"
-    SUDO_WWW="sudo -H -u ${WWW_USER} "
-    PATH_TO_MISP="/var/www/MISP"
-    CAKE="${PATH_TO_MISP}/app/Console/cake"
-    MISP_BASEURL="${MISP_BASEURL:-""}"
-    LXC_MISP="lxc exec ${MISP_CONTAINER}"
-    MISP_LIVE="0"
-    LXC_MISP="lxc exec ${MISP_CONTAINER}"
-}
 
 setupLXD(){
     # Create Project 
@@ -538,14 +582,14 @@ setupLXD(){
     # Create storage pools
     APP_STORAGE=$(generateName "app-storage")
     if checkRessourceExist "storage" "$APP_STORAGE"; then
-        echo -e "${RED}Error: Storage '$APP_STORAGE' already exists.${NC}"
+        error "Storage '$APP_STORAGE' already exists."
         exit 1
     fi
     lxc storage create "$APP_STORAGE" zfs source="$APP_PARTITION"
 
     DB_STORAGE=$(generateName "db-storage")
     if checkRessourceExist "storage" "$DB_STORAGE"; then
-        echo -e "${RED}Error: Storage '$DB_STORAGE' already exists.${NC}"
+        error "Storage '$DB_STORAGE' already exists."
         exit 1
     fi
     lxc storage create "$DB_STORAGE" zfs source="$DB_PARTITION"
@@ -555,14 +599,14 @@ setupLXD(){
     # max len of 15 
     NETWORK_NAME=${NETWORK_NAME:0:15}
     if checkRessourceExist "network" "$NETWORK_NAME"; then
-        echo -e "${RED}Error: Network '$NETWORK_NAME' already exists.${NC}"
+        error "Network '$NETWORK_NAME' already exists."
     fi
     lxc network create "$NETWORK_NAME" --type=bridge
 
     # Create Profiles
     APP_PROFILE=$(generateName "app")
     if checkRessourceExist "profile" "$APP_PROFILE"; then
-        echo -e "${RED}Error: Profile '$APP_PROFILE' already exists.${NC}"
+        error "Profile '$APP_PROFILE' already exists."
     fi
     lxc profile create "$APP_PROFILE"
     lxc profile device add "$APP_PROFILE" root disk path=/ pool="$APP_STORAGE"
@@ -572,7 +616,7 @@ setupLXD(){
     DB_PROFILE=$(generateName "db")
     echo "db-profile: $DB_PROFILE"
     if checkRessourceExist "profile" "$DB_PROFILE"; then
-        echo -e "${RED}Error: Profile '$DB_PROFILE' already exists.${NC}"
+        error "Profile '$DB_PROFILE' already exists."
     fi
     lxc profile create "$DB_PROFILE"
     lxc profile device add "$DB_PROFILE" root disk path=/ pool="$DB_STORAGE"
@@ -584,21 +628,27 @@ importImages(){
     MISP_IMAGE_NAME=$(generateName "misp")
     echo "image: $MISP_IMAGE_NAME"
     if checkRessourceExist "image" "$MISP_IMAGE_NAME"; then
-        echo -e "${RED}Error: Image '$MISP_IMAGE_NAME' already exists.${NC}"
+        error "Image '$MISP_IMAGE_NAME' already exists."
     fi
     lxc image import $MISP_IMAGE --alias $MISP_IMAGE_NAME
 
     MYSQL_IMAGE_NAME=$(generateName "mysql")
     if checkRessourceExist "image" "$MYSQL_IMAGE_NAME"; then
-        echo -e "${RED}Error: Image '$MYSQL_IMAGE_NAME' already exists.${NC}"
+        error "Image '$MYSQL_IMAGE_NAME' already exists."
     fi
     lxc image import $MYSQL_IMAGE --alias $MYSQL_IMAGE_NAME
 
     REDIS_IMAGE_NAME=$(generateName "redis")
     if checkRessourceExist "image" "$REDIS_IMAGE_NAME"; then
-        echo -e "${RED}Error: Image '$REDIS_IMAGE_NAME' already exists.${NC}"
+        error "Image '$REDIS_IMAGE_NAME' already exists."
     fi
     lxc image import $REDIS_IMAGE --alias $REDIS_IMAGE_NAME
+
+    MODULES_IMAGE_NAME=$(generateName "modules")
+    if checkRessourceExist "image" "$MODULES_IMAGE_NAME"; then
+        error "Image '$MODULES_IMAGE_NAME' already exists."
+    fi
+    lxc image import $MODULES_IMAGE --alias $MODULES_IMAGE_NAME
 }
 
 
@@ -607,19 +657,22 @@ launchContainers(){
     lxc launch $MISP_IMAGE_NAME $MISP_CONTAINER --profile=$APP_PROFILE 
     lxc launch $MYSQL_IMAGE_NAME $MYSQL_CONTAINER --profile=$DB_PROFILE
     lxc launch $REDIS_IMAGE_NAME $REDIS_CONTAINER --profile=$DB_PROFILE 
+    if $modules; then
+        lxc launch $MODULES_IMAGE_NAME $MODULES_CONTAINER --profile=$APP_PROFILE
+    fi
 }
 
 
 configureMISPForDB(){
     ## Edit database conf
-    lxc exec $MISP_CONTAINER -- sed -i "s/'database' => 'misp'/'database' => '$MYSQL_DATABASE'/" $MISP_PATH/MISP/app/Config/database.php
-    lxc exec $MISP_CONTAINER -- sed -i "s/localhost/$MYSQL_CONTAINER.lxd/" $MISP_PATH/MISP/app/Config/database.php
-    lxc exec $MISP_CONTAINER -- sed -i "s/'login' => '.*'/'login' => '$MYSQL_USER'/" "$MISP_PATH/MISP/app/Config/database.php"
-    lxc exec $MISP_CONTAINER -- sed -i "s/8889/3306/" $MISP_PATH/MISP/app/Config/database.php
-    lxc exec $MISP_CONTAINER -- sed -i "s/'password' => '.*'/'password' => '$MYSQL_PASSWORD'/" "$MISP_PATH/MISP/app/Config/database.php"
+    ${LXC_MISP} -- sed -i "s/'database' => 'misp'/'database' => '$MYSQL_DATABASE'/" $MISP_PATH/MISP/app/Config/database.php
+    ${LXC_MISP} -- sed -i "s/localhost/$MYSQL_CONTAINER.lxd/" $MISP_PATH/MISP/app/Config/database.php
+    ${LXC_MISP} -- sed -i "s/'login' => '.*'/'login' => '$MYSQL_USER'/" "$MISP_PATH/MISP/app/Config/database.php"
+    ${LXC_MISP} -- sed -i "s/8889/3306/" $MISP_PATH/MISP/app/Config/database.php
+    ${LXC_MISP} -- sed -i "s/'password' => '.*'/'password' => '$MYSQL_PASSWORD'/" "$MISP_PATH/MISP/app/Config/database.php"
 
     # Write credentials to MISP
-    lxc exec $MISP_CONTAINER -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
+    ${LXC_MISP} -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
 }
 
 configureMySQL(){
@@ -632,18 +685,17 @@ configureMySQL(){
     lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mysql
 
     ## Check connection + import schema
-    table_count=$(lxc exec $MISP_CONTAINER -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
+    table_count=$(${LXC_MISP} -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
     if [ $? -eq 0 ]; then
                     echo -e "${GREEN}Connected to database successfully!${NC}"
                     if [ $table_count -lt 73 ]; then
                         echo "Database misp is empty, importing tables from misp container ..."
-                        lxc exec $MISP_CONTAINER -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $MISP_PATH/MISP/INSTALL/MYSQL.sql"
+                        ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $MISP_PATH/MISP/INSTALL/MYSQL.sql"
                     else
                         echo "Database misp available"
                     fi
     else
-        echo -e "${RED}ERROR${NC}:"
-        echo $table_count
+        error $table_count
     fi
 
     ## secure mysql installation
@@ -656,7 +708,7 @@ configureMySQL(){
 EOF
 
     ## Update Database
-    lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin runUpdates"
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin runUpdates"
 
 }
 
@@ -666,39 +718,65 @@ configureRedis(){
     lxc exec $REDIS_CONTAINER -- systemctl restart redis-server
 }
 
+configureMISPModules(){
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_services_enable" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hover_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hover_popover_only" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_timeout" 300
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hover_timeout" 150
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_services_url" "$MODULES_CONTAINER.lxd"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_services_port" 6666
+ 
+    # Enable Import modules
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Import_services_enable" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Import_services_url" "$MODULES_CONTAINER.lxd"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Import_services_port" 6666
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Import_timeout" 300
+
+    # Enable export modules
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_services_enable" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_services_url" "$MODULES_CONTAINER.lxd"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_services_port" 6666
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_timeout" 300
+}
+
+# Main
 checkSoftwareDependencies
-askUser
+getIntallationConfig
 setVars
-debug "1" "Setup LXD Project"
+info "1" "Setup LXD Project"
 setupLXD
-debug "2" "Import Images"
+info "2" "Import Images"
 importImages
-debug "3" "Create Container"
+info "3" "Create Container"
 launchContainers
-debug "4" "Configure MISP DB"
+info "4" "Configure MISP for DB"
 waitForContainer $MISP_CONTAINER
 configureMISPForDB
-debug "5" "Configure and Update MySQL DB"
+info "5" "Configure and Update MySQL DB"
 waitForContainer $MYSQL_CONTAINER
 configureMySQL
-debug "6" "Configure Redis"
+info "6" "Configure Redis"
 waitForContainer $REDIS_CONTAINER
 configureRedis
-debug "7" "Create Keys"
+info "7" "Create Keys"
 setupGnuPG
 # Create new auth key
-lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake UserInit" 
-AUTH_KEY=$(lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake user change_authkey admin@admin.test | grep -oP ': \K.*'")
+${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake UserInit" 
+AUTH_KEY=$(${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake user change_authkey admin@admin.test | grep -oP ': \K.*'")
 lxc exec "$MISP_CONTAINER" -- sh -c "echo 'Authkey: $AUTH_KEY' > /home/misp/MISP-authkey.txt"
 
-debug "8" "Set Core Settings"
+info "8" "Set MISP Settings"
 coreCAKE
-debug "9" "Update Galaxies, ObjectTemplates, Warninglists, Noticelists and Templates"
+if $modules; then
+    configureMISPModules
+fi
+info "9" "Update Galaxies, ObjectTemplates, Warninglists, Noticelists and Templates"
 updateGOWNT
 if $prod; then
-    debug "10" "Set MISP.live for production"
-    lxc exec $MISP_CONTAINER -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin setSetting MISP.live true"
-    echo -e "${YELLOW}MISP runs in production mode!${NC}"
+    info "10" "Set MISP.live for production"
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin setSetting MISP.live true"
+    warn "MISP runs in production mode!"
 fi
 
 misp_ip=$(lxc list $MISP_CONTAINER --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
@@ -710,10 +788,10 @@ echo "--------------------------------------------------------------------------
 echo -e "The following files were created and need either ${RED}protection${NC} or ${RED}removal${NC} (shred on the CLI)"
 echo -e "${RED}/home/misp/mysql.txt${NC}"
 echo "Contents:"
-lxc exec $MISP_CONTAINER -- cat /home/misp/mysql.txt
+${LXC_MISP} -- cat /home/misp/mysql.txt
 echo -e "${RED}/home/misp/MISP-authkey.txt${NC}"
 echo "Contents:"
-lxc exec $MISP_CONTAINER -- cat /home/misp/MISP-authkey.txt
+${LXC_MISP} -- cat /home/misp/MISP-authkey.txt
 echo "--------------------------------------------------------------------------------------------"
 echo "User: admin@admin.test"
 echo "Password: admin"
