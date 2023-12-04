@@ -503,59 +503,6 @@ checkAptLock () {
   unset DONE
 }
 
-# Install Php 7.0 dependencies
-installDepsPhp70 () {
-  debug "Installing PHP 7.0 dependencies"
-  PHP_ETC_BASE=/etc/php/7.0
-  PHP_INI=${PHP_ETC_BASE}/apache2/php.ini
-  checkAptLock
-  sudo apt install -qy \
-  libapache2-mod-php \
-  php php-cli \
-  php-dev \
-  php-json php-xml php-mysql php-opcache php-readline php-mbstring php-zip \
-  php-redis php-gnupg \
-  php-gd
-
-  for key in upload_max_filesize post_max_size max_execution_time max_input_time memory_limit
-  do
-      sudo sed -i "s/^\($key\).*/\1 = $(eval echo \${$key})/" $PHP_INI
-  done
-  sudo sed -i "s/^\(session.sid_length\).*/\1 = $(eval echo \${session0sid_length})/" $PHP_INI
-  sudo sed -i "s/^\(session.use_strict_mode\).*/\1 = $(eval echo \${session0use_strict_mode})/" $PHP_INI
-}
-
-# Install Php 7.3 deps
-installDepsPhp73 () {
-  debug "Installing PHP 7.3 dependencies"
-  PHP_ETC_BASE=/etc/php/7.3
-  PHP_INI=${PHP_ETC_BASE}/apache2/php.ini
-  checkAptLock
-  if [[ ! -n ${KALI} ]]; then
-    sudo apt install -qy \
-      libapache2-mod-php7.3 \
-      php7.3 php7.3-cli \
-      php7.3-dev \
-      php7.3-json php7.3-xml php7.3-mysql php7.3-opcache php7.3-readline php7.3-mbstring \
-      php-redis php-gnupg \
-      php-gd
-  else
-      sudo apt install -qy \
-        libapache2-mod-php7.3 \
-        libgpgme-dev \
-        php7.3 php7.3-cli \
-        php7.3-dev \
-        php7.3-json php7.3-xml php7.3-mysql php7.3-opcache php7.3-readline php7.3-mbstring \
-        php7.3-gd
-      sudo pecl channel-update pecl.php.net
-      #sudo pear config-set php_ini ${PHP_INI}
-      echo "" |sudo pecl install redis
-      sudo pecl install gnupg
-      echo extension=gnupg.so | sudo tee ${PHP_ETC_BASE}/mods-available/gnupg.ini
-      echo extension=redis.so | sudo tee ${PHP_ETC_BASE}/mods-available/redis.ini
-  fi
-}
-
 # Installing core dependencies
 installDeps () {
   debug "Installing core dependencies"
@@ -626,16 +573,6 @@ genApacheConf () {
   </VirtualHost>" | sudo tee /etc/apache2/sites-available/misp-ssl.conf
 }
 
-# Add git pull update mechanism to rc.local - TODO: Make this better
-gitPullAllRCLOCAL () {
-  sudo sed -i -e '$i \git_dirs="/usr/local/src/misp-modules /var/www/misp-dashboard /usr/local/src/faup /usr/local/src/mail_to_misp /usr/local/src/misp-modules /usr/local/src/viper /var/www/misp-dashboard"\n' /etc/rc.local
-  sudo sed -i -e '$i \for d in $git_dirs; do\n' /etc/rc.local
-  sudo sed -i -e '$i \    echo "Updating ${d}"\n' /etc/rc.local
-  sudo sed -i -e '$i \    cd $d && sudo git pull &\n' /etc/rc.local
-  sudo sed -i -e '$i \done\n' /etc/rc.local
-}
-
-
 # Main composer function
 composer () {
   sudo mkdir -p /var/www/.composer ; sudo chown ${WWW_USER}:${WWW_USER} /var/www/.composer
@@ -656,29 +593,6 @@ alias composer72=composer
 # Composer on php 7.3 does not need any special treatment the provided phar works well
 alias composer73=composer
 
-# TODO: this is probably a useless function
-# Enable various core services
-enableServices () {
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now  mysql
-    sudo systemctl enable --now  apache2
-    sudo systemctl enable --now  redis-server
-}
-
-# TODO: check if this makes sense
-# Generate rc.local
-genRCLOCAL () {
-  if [[ ! -e /etc/rc.local ]]; then
-      echo '#!/bin/sh -e' | tee -a /etc/rc.local
-      echo 'exit 0' | sudo tee -a /etc/rc.local
-      chmod u+x /etc/rc.local
-  fi
-
-  sudo sed -i -e '$i \echo never > /sys/kernel/mm/transparent_hugepage/enabled\n' /etc/rc.local
-  sudo sed -i -e '$i \echo 1024 > /proc/sys/net/core/somaxconn\n' /etc/rc.local
-  sudo sed -i -e '$i \sysctl vm.overcommit_memory=1\n' /etc/rc.local
-  sudo sed -i -e '$i \[ -f /etc/init.d/firstBoot ] && bash /etc/init.d/firstBoot\n' /etc/rc.local
-}
 
 # Run PyMISP tests
 runTests () {
@@ -691,15 +605,6 @@ key = \"${AUTH_KEY}\"" |sudo tee ${PATH_TO_MISP}/PyMISP/tests/keys.py
   ${SUDO_WWW} sh -c "cd $PATH_TO_MISP/PyMISP && ${PATH_TO_MISP}/venv/bin/python tests/testlive_comprehensive.py"
 }
 
-# Nuke the install, meaning remove all MISP data but no packages, this makes testing the installer faster
-nuke () {
-  echo -e "${RED}YOU ARE ABOUT TO DELETE ALL MISP DATA! Sleeping 10, 9, 8...${NC}"
-  sleep 10
-  sudo rm -rvf /usr/local/src/{misp-modules,viper,mail_to_misp,LIEF,faup}
-  sudo rm -rvf /var/www/MISP
-  sudo mysqladmin -h $DBHOST drop misp
-  sudo mysql -h $DBHOST -e "DROP USER misp@localhost"
-}
 
 # Final function to let the user know what happened
 theEnd () {
@@ -804,13 +709,6 @@ installCoreDeps () {
   sudo apt-get install python3-dev python3-pip libxml2-dev libxslt1-dev zlib1g-dev python-setuptools -qy
 }
 
-upgradeToPHP74 () {
-  sudo apt install software-properties-common -qy
-  sudo add-apt-repository ppa:ondrej/php -y
-  sudo apt update
-  sudo apt dist-upgrade -y
-}
-
 # Install Php 7.4 dependencies
 installDepsPhp74 () {
   debug "Installing PHP 7.4 dependencies"
@@ -825,83 +723,6 @@ installDepsPhp74 () {
   php7.4-redis php7.4-gnupg \
   php7.4-intl php7.4-bcmath \
   php7.4-gd
-
-  for key in upload_max_filesize post_max_size max_execution_time max_input_time memory_limit
-  do
-      sudo sed -i "s/^\($key\).*/\1 = $(eval echo \${$key})/" $PHP_INI
-  done
-  sudo sed -i "s/^\(session.sid_length\).*/\1 = $(eval echo \${session0sid_length})/" $PHP_INI
-  sudo sed -i "s/^\(session.use_strict_mode\).*/\1 = $(eval echo \${session0use_strict_mode})/" $PHP_INI
-}
-
-# Install Php 7.3 deps
-installDepsPhp73 () {
-  debug "Installing PHP 7.3 dependencies"
-  PHP_ETC_BASE=/etc/php/7.3
-  PHP_INI=${PHP_ETC_BASE}/apache2/php.ini
-  checkAptLock
-  if [[ ! -n ${KALI} ]]; then
-    sudo apt install -qy \
-      libapache2-mod-php7.3 \
-      php7.3 php7.3-cli \
-      php7.3-dev \
-      php7.3-json php7.3-xml php7.3-mysql php7.3-opcache php7.3-readline php7.3-mbstring \
-      php-redis php-gnupg \
-      php-gd
-  else
-      sudo apt install -qy \
-        libapache2-mod-php7.3 \
-        libgpgme-dev \
-        php7.3 php7.3-cli \
-        php7.3-dev \
-        php7.3-json php7.3-xml php7.3-mysql php7.3-opcache php7.3-readline php7.3-mbstring \
-        php7.3-gd
-      sudo pecl channel-update pecl.php.net
-      #sudo pear config-set php_ini ${PHP_INI}
-      echo "" |sudo pecl install redis
-      sudo pecl install gnupg
-      echo extension=gnupg.so | sudo tee ${PHP_ETC_BASE}/mods-available/gnupg.ini
-      echo extension=redis.so | sudo tee ${PHP_ETC_BASE}/mods-available/redis.ini
-  fi
-}
-
-# Install Php 7.2 dependencies
-installDepsPhp72 () {
-  debug "Installing PHP 7.2 dependencies"
-  PHP_ETC_BASE=/etc/php/7.2
-  PHP_INI=${PHP_ETC_BASE}/apache2/php.ini
-  checkAptLock
-  sudo apt install -qy \
-  libapache2-mod-php \
-  php php-cli \
-  php-dev \
-  php-json php-xml php-mysql php7.2-opcache php-readline php-mbstring php-zip \
-  php-redis php-gnupg \
-  php-intl php-bcmath \
-  php-gd
-
-  for key in upload_max_filesize post_max_size max_execution_time max_input_time memory_limit
-  do
-      sudo sed -i "s/^\($key\).*/\1 = $(eval echo \${$key})/" $PHP_INI
-  done
-  sudo sed -i "s/^\(session.sid_length\).*/\1 = $(eval echo \${session0sid_length})/" $PHP_INI
-  sudo sed -i "s/^\(session.use_strict_mode\).*/\1 = $(eval echo \${session0use_strict_mode})/" $PHP_INI
-}
-## End Function Section Nothing allowed in .md after this line ##
-
-# Install Php 7.0 dependencies
-installDepsPhp70 () {
-  debug "Installing PHP 7.0 dependencies"
-  PHP_ETC_BASE=/etc/php/7.0
-  PHP_INI=${PHP_ETC_BASE}/apache2/php.ini
-  checkAptLock
-  sudo apt install -qy \
-  libapache2-mod-php \
-  php php-cli \
-  php-dev \
-  php-json php-xml php-mysql php-opcache php-readline php-mbstring php-zip \
-  php-redis php-gnupg \
-  php-gd
 
   for key in upload_max_filesize post_max_size max_execution_time max_input_time memory_limit
   do
@@ -1152,56 +973,6 @@ WantedBy=multi-user.target" | sudo tee /etc/systemd/system/misp-workers.service
   sudo sed -i -e '$i \sysctl vm.overcommit_memory=1\n' /etc/rc.local
 }
 
-# Main MISP Modules install function
-mispmodules () {
-  cd /usr/local/src/
-  sudo apt-get install cmake libcaca-dev liblua5.3-dev -y
-  ## TODO: checkUsrLocalSrc in main doc
-  if [[ ! -d /usr/local/src/misp-modules ]]; then
-    debug "Cloning misp-modules"
-    false; while [[ $? -ne 0 ]]; do $SUDO_CMD git clone https://github.com/MISP/misp-modules.git; done
-  else
-    false; while [[ $? -ne 0 ]]; do $SUDO_CMD git -C /usr/local/src/misp-modules pull; done
-  fi
-
-  # Install faup/gtcaca
-  [[ ! -d "faup" ]] && false; while [[ $? -ne 0 ]]; do $SUDO_CMD git clone https://github.com/stricaud/faup.git faup; done
-  [[ ! -d "gtcaca" ]] && false; while [[ $? -ne 0 ]]; do $SUDO_CMD git clone https://github.com/stricaud/gtcaca.git gtcaca; done
-  sudo chown -R ${MISP_USER}:${MISP_USER} faup gtcaca
-  # Install gtcaca
-  cd gtcaca
-  $SUDO_CMD mkdir -p build
-  cd build
-  $SUDO_CMD cmake .. && $SUDO_CMD make
-  sudo make install
-  cd /usr/local/src/faup
-  # Install faup
-  $SUDO_CMD mkdir -p build
-  cd build
-  $SUDO_CMD cmake .. && $SUDO_CMD make
-  sudo make install
-  sudo ldconfig
-
-  cd /usr/local/src/misp-modules
-  # some misp-modules dependencies
-  sudo apt install libpq5 libjpeg-dev tesseract-ocr libpoppler-cpp-dev imagemagick libopencv-dev zbar-tools libzbar0 libzbar-dev libfuzzy-dev -y
-  # If you build an egg, the user you build it as need write permissions in the CWD
-  sudo chgrp $WWW_USER .
-  sudo chmod og+w .
-  $SUDO_WWW ${PATH_TO_MISP}/venv/bin/pip install pillow
-  $SUDO_WWW ${PATH_TO_MISP}/venv/bin/pip install -I -r REQUIREMENTS
-  sudo chgrp staff .
-  $SUDO_WWW ${PATH_TO_MISP}/venv/bin/pip install -I .
-  $SUDO_WWW ${PATH_TO_MISP}/venv/bin/pip install censys pyfaup
-
-  # Start misp-modules as a service
-  sudo cp /usr/local/src/misp-modules/etc/systemd/system/misp-modules.service /etc/systemd/system/
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now misp-modules
-
-  # Sleep 9 seconds to give misp-modules a chance to spawn
-  sleep 9
-}
 
 modulesCAKE () {
   # Enable Enrichment, set better timeouts
@@ -1357,122 +1128,6 @@ dashboardCAKE () {
   ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_audit_notifications_enable" false
 }
 
-# Main mail2misp install function
-mail2misp () {
-  debug "Installing Mail2${LBLUE}MISP${NC}"
-  cd /usr/local/src/
-  sudo apt-get install cmake libcaca-dev liblua5.3-dev -y
-  false; while [[ $? -ne 0 ]]; do ${SUDO_CMD} git clone https://github.com/MISP/mail_to_misp.git; done
-  ## TODO: The below fails miserably (obviously) if faup/gtcac dirs exist, let's just make the dangerous assumption (for the sake of the installer, that they exist)
-  ##[[ ! -d "faup" ]] && false; while [[ $? -ne 0 ]]; do ${SUDO_CMD} git clone https://github.com/stricaud/faup.git faup; done
-  ##[[ ! -d "gtcaca" ]] && false; while [[ $? -ne 0 ]]; do ${SUDO_CMD} git clone https://github.com/stricaud/gtcaca.git gtcaca; done
-  sudo chown -R ${MISP_USER}:${MISP_USER} faup mail_to_misp gtcaca
-  cd gtcaca
-  ${SUDO_CMD} mkdir -p build
-  cd build
-  ${SUDO_CMD} cmake .. && ${SUDO_CMD} make
-  sudo make install
-  cd ../../faup
-  ${SUDO_CMD} mkdir -p build
-  cd build
-  ${SUDO_CMD} cmake .. && ${SUDO_CMD} make
-  sudo make install
-  sudo ldconfig
-  cd ../../mail_to_misp
-  ${SUDO_CMD} virtualenv -p python3 venv
-  ${SUDO_CMD} ./venv/bin/pip install -r requirements.txt
-  ${SUDO_CMD} cp mail_to_misp_config.py-example mail_to_misp_config.py
-  ##$SUDO cp mail_to_misp_config.py-example mail_to_misp_config.py
-  ${SUDO_CMD} sed -i "s/^misp_url\ =\ 'YOUR_MISP_URL'/misp_url\ =\ 'https:\/\/localhost'/g" /usr/local/src/mail_to_misp/mail_to_misp_config.py
-  ${SUDO_CMD} sed -i "s/^misp_key\ =\ 'YOUR_KEY_HERE'/misp_key\ =\ '${AUTH_KEY}'/g" /usr/local/src/mail_to_misp/mail_to_misp_config.py
-}
-
-ssdeep () {
-  debug "Install ssdeep 2.14.1"
-  cd /usr/local/src
-  $SUDO_CMD wget https://github.com/ssdeep-project/ssdeep/releases/download/release-2.14.1/ssdeep-2.14.1.tar.gz
-  $SUDO_CMD tar zxvf ssdeep-2.14.1.tar.gz
-  cd ssdeep-2.14.1
-  $SUDO_CMD ./configure --datadir=/usr --prefix=/usr --localstatedir=/var --sysconfdir=/etc
-  $SUDO_CMD make
-  sudo make install
-
-  #installing ssdeep_php
-  sudo pecl channel-update pecl.php.net
-  sudo pecl install ssdeep
-
-  # You should add "extension=ssdeep.so" to mods-available - Check /etc/php for your current version
-  echo "extension=ssdeep.so" | sudo tee ${PHP_ETC_BASE}/mods-available/ssdeep.ini
-  sudo phpenmod ssdeep
-  sudo service apache2 restart
-}
-
-# viper-web is broken ATM
-# Main Viper install function
-viper () {
-  export PATH=$PATH:/home/misp/.local/bin
-  debug "Installing Viper dependencies"
-  cd /usr/local/src/
-  sudo apt-get install \
-    libssl-dev swig python3-ssdeep p7zip-full unrar-free sqlite python3-pyclamd exiftool radare2 \
-    python3-magic python3-sqlalchemy python3-prettytable libffi-dev libfreetype6-dev libpng-dev -qy
-  if [[ -f "/etc/debian_version" ]]; then
-    if [[ "$(cat /etc/debian_version)" == "9.9" ]]; then
-      sudo apt-get install libpython3.5-dev -qy
-    fi
-  fi
-  echo "Cloning Viper"
-  false; while [[ $? -ne 0 ]]; do $SUDO_CMD git clone https://github.com/viper-framework/viper.git; done
-  false; while [[ $? -ne 0 ]]; do $SUDO_CMD git clone https://github.com/viper-framework/viper-web.git; done
-  sudo chown -R $MISP_USER:$MISP_USER viper
-  sudo chown -R $MISP_USER:$MISP_USER viper-web
-  cd viper
-  echo "Creating virtualenv"
-  $SUDO_CMD virtualenv -p python3 venv
-  echo "Submodule update"
-  # TODO: Check for current user install permissions
-  $SUDO_CMD git submodule update --init --recursive
-  echo "pip install deps"
-  $SUDO_CMD ./venv/bin/pip install pefile olefile jbxapi Crypto pypdns pypssl r2pipe pdftools virustotal-api SQLAlchemy PrettyTable python-magic scrapy lief
-  $SUDO_CMD ./venv/bin/pip install .
-  echo 'update-modules' |/usr/local/src/viper/venv/bin/viper
-  cd /usr/local/src/viper-web
-  $SUDO_CMD sed -i '1 s/^.*$/\#!\/usr\/local\/src\/viper\/venv\/bin\/python/' viper-web
-  $SUDO_CMD /usr/local/src/viper/venv/bin/pip install -r requirements.txt
-  echo "Launching viper-web"
-  $SUDO_CMD /usr/local/src/viper-web/viper-web -p 8888 -H 0.0.0.0 &
-  echo 'PATH="/home/misp/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/local/src/viper:/var/www/MISP/app/Console"' |sudo tee -a /etc/environment
-  echo ". /etc/environment" >> /home/${MISP_USER}/.profile
-
-  # TODO: Perms, MISP_USER_HOME, nasty hack cuz Kali on R00t
-  if [ -f /home/${MISP_USER}/.viper/viper.conf ]; then
-    VIPER_HOME="/home/${MISP_USER}/.viper"
-  else
-    VIPER_HOME="${HOME}/.viper"
-  fi
-
-  echo "Setting misp_url/misp_key"
-  $SUDO_CMD sed -i "s/^misp_url\ =/misp_url\ =\ http:\/\/localhost/g" ${VIPER_HOME}/viper.conf
-  $SUDO_CMD sed -i "s/^misp_key\ =/misp_key\ =\ $AUTH_KEY/g" ${VIPER_HOME}/viper.conf
-  # Reset admin password to: admin/Password1234
-  echo "Fixing admin.db with default password"
-  VIPER_COUNT=0
-  while [ "$(sudo sqlite3 ${VIPER_HOME}/admin.db 'UPDATE auth_user SET password="pbkdf2_sha256$100000$iXgEJh8hz7Cf$vfdDAwLX8tko1t0M1TLTtGlxERkNnltUnMhbv56wK/U="'; echo $?)" -ne "0" ]; do
-    # FIXME This might lead to a race condition, the while loop is sub-par
-    sudo chown $MISP_USER:$MISP_USER ${VIPER_HOME}/admin.db
-    echo "Updating viper-web admin password, giving process time to start-up, sleeping 5, 4, 3,…"
-    sleep 6
-    VIPER_COUNT=$[$VIPER_COUNT+1]
-    if [[ "$VIPER_COUNT" > '10' ]]; then
-      echo "Something is wrong with updating viper. Continuing without db update."
-      break
-    fi
-  done
-
-  # Add viper-web to rc.local to be started on boot
-  sudo sed -i -e '$i \sudo -u misp /usr/local/src/viper/viper-web -p 8888 -H 0.0.0.0 > /tmp/viper-web_rc.local.log &\n' /etc/rc.local
-}
-
 colors () {
   # Some colors for easier debug and better UX (not colorblind compatible, PR welcome)
   RED='\033[0;31m'
@@ -1481,101 +1136,6 @@ colors () {
   YELLOW='\033[0;33m'
   HIDDEN='\e[8m'
   NC='\033[0m'
-}
-
-generateInstaller () {
-  if [[ ! -f $(which xsnippet) ]]; then
-    echo 'xsnippet is NOT installed. Clone the repository below and copy the xsnippet shell script somehwere in your $PATH'
-    echo "git clone https://github.com/SteveClement/xsnippet.git"
-    exit 1
-  fi
-
-  if [[ "$(echo $0 |grep -e '^\.\/')" != "./INSTALL.tpl.sh" ]]; then
-    echo -e "${RED}iAmError!${NC}"
-    echo -e "To generate the installer call it with './INSTALL.tpl.sh' otherwise things will break."
-    echo -e "You called: ${RED}$0${NC}"
-    exit 1
-  fi
-
-  mkdir installer ; cd installer
-  cp ../INSTALL.tpl.sh .
-
-  # Pull code snippets out of Main Install Documents
-  for f in `echo INSTALL.ubuntu2004.md INSTALL.ubuntu1804.md xINSTALL.debian10.md xINSTALL.tsurugi.md INSTALL.rhel7.md INSTALL.rhel8.md`; do
-    xsnippet . ../../docs/${f}
-  done
-
-  # Pull out code snippets from generic Install Documents
-  for f in `echo globalVariables.md mail_to_misp-debian.md MISP_CAKE_init.md misp-dashboard-debian.md misp-dashboard-rhel.md misp-dashboard-cake.md misp-modules-debian.md misp-modules-rhel.md misp-modules-cake.md gnupg.md ssdeep-debian.md sudo_etckeeper.md supportFunctions.md viper-debian.md`; do
-    xsnippet . ../../docs/generic/${f}
-  done
-
-  # TODO: Fix the below.
-  # $ for f in `echo ls [0-9]_*`; do
-  # $   perl -pe 's/## ${f} ##/`cat ${f}`/ge' -i INSTALL.sh
-  # $ done
-  #
-  # Temporary copy/paste holder
-  perl -pe 's/^## 0_global-vars.sh ##/`cat 0_global-vars.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_apt-upgrade.sh ##/`cat 0_apt-upgrade.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_sudoKeeper.sh ##/`cat 0_sudoKeeper.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_installCoreDeps.sh ##/`cat 0_installCoreDeps.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_upgradePhp74.sh ##/`cat 0_upgradePhp74.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_installDepsPhp74.sh ##/`cat 0_installDepsPhp74.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_installDepsPhp73.sh ##/`cat 0_installDepsPhp73.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_installDepsPhp72.sh ##/`cat 0_installDepsPhp72.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_installDepsPhp70.sh ##/`cat 0_installDepsPhp70.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_prepareDB.sh ##/`cat 1_prepareDB.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_apacheConfig.sh ##/`cat 1_apacheConfig.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_mispCoreInstall.sh ##/`cat 1_mispCoreInstall.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_installCake.sh ##/`cat 1_installCake.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_permissions.sh ##/`cat 2_permissions.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_configMISP.sh ##/`cat 2_configMISP.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_support-functions.sh ##/`cat 0_support-functions.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_gnupg.sh ##/`cat 2_gnupg.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_logRotation.sh ##/`cat 2_logRotation.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_backgroundWorkers.sh ##/`cat 2_backgroundWorkers.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_core-cake.sh ##/`cat 2_core-cake.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 3_misp-modules-cake.sh ##/`cat 3_misp-modules-cake.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 3_misp-modules.sh ##/`cat 3_misp-modules.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 4_misp-dashboard-cake.sh ##/`cat 4_misp-dashboard-cake.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 4_misp-dashboard.sh ##/`cat 4_misp-dashboard.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 5_mail_to_misp.sh ##/`cat 5_mail_to_misp.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 6_viper.sh ##/`cat 6_viper.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 6_ssdeep.sh ##/`cat 6_ssdeep.sh`/ge' -i INSTALL.tpl.sh
-
-  perl -pe 's/^## 0_RHEL_register.sh ##/`cat 0_RHEL_register.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_RHEL7_SCL.sh ##/`cat 0_RHEL7_SCL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_RHEL8_SCL.sh ##/`cat 0_RHEL8_SCL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_CentOS_EPEL.sh ##/`cat 0_CentOS_EPEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_RHEL7_EPEL.sh ##/`cat 0_RHEL7_EPEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_yumInstallCoreDeps7.sh ##/`cat 0_yumInstallCoreDeps7.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_yumInstallCoreDeps8.sh ##/`cat 0_yumInstallCoreDeps8.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_yumInstallHaveged.sh ##/`cat 0_yumInstallHaveged.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_mispCoreInstall_RHEL7.sh ##/`cat 1_mispCoreInstall_RHEL7.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_mispCoreInstall_RHEL8.sh ##/`cat 1_mispCoreInstall_RHEL8.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 0_EPEL_REMI.sh ##/`cat 0_EPEL_REMI.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_installCake_RHEL.sh ##/`cat 1_installCake_RHEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_permissions_RHEL7.sh ##/`cat 2_permissions_RHEL7.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_permissions_RHEL8.sh ##/`cat 2_permissions_RHEL8.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_prepareDB_RHEL.sh ##/`cat 1_prepareDB_RHEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_apacheConfig_RHEL7.sh ##/`cat 1_apacheConfig_RHEL7.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_apacheConfig_RHEL8.sh ##/`cat 1_apacheConfig_RHEL8.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 1_firewall_RHEL.sh ##/`cat 1_firewall_RHEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_logRotation_RHEL.sh ##/`cat 2_logRotation_RHEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 2_configMISP_RHEL.sh ##/`cat 2_configMISP_RHEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 3_configWorkers_RHEL.sh ##/`cat 3_configWorkers_RHEL.sh`/ge' -i INSTALL.tpl.sh
-  perl -pe 's/^## 3_misp-modules_RHEL.sh ##/`cat 3_misp-modules_RHEL.sh`/ge' -i INSTALL.tpl.sh
-
-  cp INSTALL.tpl.sh ../INSTALL.sh
-  cd ..
-  for ALGO in $(echo "1 256 384 512"); do
-    shasum -a ${ALGO} INSTALL.sh > INSTALL.sh.sha${ALGO}
-  done
-  [[ "$(which rhash > /dev/null 2>&1 ; echo $?)" == "0" ]] && rhash --sfv --sha1 --sha256 --sha384 --sha512 INSTALL.sh > INSTALL.sh.sfv
-  rm -rf installer
-  echo -e "${LBLUE}Generated INSTALL.sh${NC}"
-  exit 0
 }
 
 # Simple debug function with message
@@ -1674,36 +1234,15 @@ installSupported () {
   [[ -n $CORE ]]   || [[ -n $ALL ]] && checkUsrLocalSrc
   progress 4
 
-  # Install misp-modules - functionLocation('generic/misp-modules-debian.md')
-  [[ -n $MODULES ]]   || [[ -n $ALL ]] && mispmodules
-  progress 4
-
-  # Install misp-modules - functionLocation('generic/misp-modules-cake.md')
-  [[ -n $MODULES ]]   || [[ -n $ALL ]] && modulesCAKE
-  progress 4
-
-  # Install ssdeep - functionLocation('generic/ssdeep-debian.md')
-  [[ -n $SSDEEP ]]     || [[ -n $ALL ]] && ssdeep
-  progress 4
-
-  # Install Mail2MISP - functionLocation('generic/mail_to_misp-debian.md')
-  [[ -n $MAIL2 ]]     || [[ -n $ALL ]] && mail2misp
-  progress 2
-
   # Run tests
   runTests
   progress 2
 
   # Run final script to inform the User what happened - functionLocation('generic/supportFunctions.md')
   theEnd
-
 }
 
 colors
-debug "Checking if we are run as the installer template"
-if [[ "$0" == "./INSTALL.tpl.sh" || "$(echo $0 |grep -o -e 'INSTALL.tpl.sh')" == "INSTALL.tpl.sh" ]]; then
-  generateInstaller
-fi
 
 # debug "Checking Linux distribution and flavour..."
 # checkFlavour
@@ -1743,12 +1282,6 @@ else
   fi
 fi
 
-# Add upgrade option to do upgrade pre flight
-[[ -n $PRE ]] && preInstall
-
-[[ -n $UPGRADE ]] && upgrade
-
-[[ -n $NUKE ]] && nuke && exit
 
 echo "Install on Ubuntu 20.04 LTS fully supported."
 echo "Please report bugs/issues here: https://github.com/MISP/MISP/issues"
