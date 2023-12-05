@@ -59,6 +59,10 @@ installMISPModules(){
     ${LXC_EXEC} --cwd=/usr/local/src/ -- sudo -u www-data git clone https://github.com/MISP/misp-modules.git
     ${LXC_EXEC} --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install -I -r REQUIREMENTS
     ${LXC_EXEC} --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install .
+
+    # Configure MISP Modules to listen on external connections
+    ${LXC_EXEC} -- sed -i 's/127\.0\.0\.1/0\.0\.0\.0/g' "/usr/local/src/misp-modules/etc/systemd/system/misp-modules.service"
+
     # Start misp-modules as a service
     ${LXC_EXEC} --cwd=/usr/local/src/misp-modules -- sudo cp etc/systemd/system/misp-modules.service /etc/systemd/system/
     ${LXC_EXEC} -- sudo systemctl daemon-reload
