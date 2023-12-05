@@ -9,11 +9,18 @@ MISP Air-Gapped is a project built on [MISP](https://github.com/MISP/MISP) and [
 
 
 ## Requirements
-You setup should consits of at least two systems. 
-- Ubuntu 22.04
-- LXD 5.19 
-- jq 1.6
-- yq 4.35.2
+
+Before setting up your environment, ensure that you meet the following prerequisites:
+
+- **Operating System:**
+  - Ubuntu 22.04
+
+- **Containerization:**
+  - LXD 5.19
+
+- **Additional Software:**
+  - jq 1.6
+  - yq 4.35.2
 
 
 ## Usage
@@ -23,7 +30,7 @@ In order to be able to pull the images from an image server you should also inst
 
 After the install you can proceed with the followig steps:
 
-1. **Clone repo**:
+<!-- 1. **Clone repo**:
    
    On a networked system:
    ```bash
@@ -46,13 +53,17 @@ After the install you can proceed with the followig steps:
     lxc image export mysql .
     lxc image export redis .
     ```
-    >**Note**: Renaming the exported `.tar` files with meaningful names can be helpful to keep track of their corresponding components.
+    >**Note**: Renaming the exported `.tar` files with meaningful names can be helpful to keep track of their corresponding components. -->
 
-4. **Transfer images and repo to air-gapped system**:
+1. **Pull Images**
+
+   TODO
+
+2. **Transfer images and repo to air-gapped system**:
 
    Transfer the exported images and the whole `deploy` directory to your air gapped system.
 
-5. **Run install script**:
+3. **Run install script**:
    
    On you host machine you can run the `install.sh` script:
    ```bash
@@ -87,28 +98,30 @@ After completing these steps, MISP should be up and running. Access the MISP web
 
 ## Update
 To update the system you have to pull a new misp image and export it as a  `.tar` file:
-```bash
+<!-- ```bash
 lxc image copy <server>:misp local:
 lxc image export misp .
-```
+``` -->
+TODO
+
 After that you have to transfer the file to your air-gapped system. On that system you can run `update.sh`:
 ```bash
-bash update.sh <container-name> <path-to-new-image>
+bash update.sh <container-name> <path-to-new-image> [<new-container>]
 ```
->**Info**: The `update.sh` script will copy a bunch of config files from the old instance to the new updated one. However ... 
+<!-- >**Info**: The `update.sh` script will copy a bunch of config files from the old instance to the new updated one. However ... 
 
-php.ini
+php.ini -->
 
 ## Build
 Instead of pulling the images from a image server you can build them on your own by using the respective scripts in the `build` folder. 
 
 To build all images simply run:
 ```bash
-bash build_all.sh <output_path> misp mysql redis
+bash build_all.sh <output_path> misp mysql redis modules
 ```
 
 This will build the images and export them to:
-- misp.tar.gz
+- misp_\<version\>_\<commit-id\>.tar.gz
 - mysql.tar.gz
 - redis.tar.gz
-
+- modules_\<commit-id\>.tar.gz
