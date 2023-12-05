@@ -15,12 +15,12 @@ error() {
 
 warn() {
     local msg=$1
-    echo -e "${Yellow}Warning: $msg" > /dev/tty
+    echo -e "${YELLOW}Warning: $msg${NC}" > /dev/tty
 }
 
 okay() {
     local msg=$1
-    echo -e "${GREEN}Warning: $msg" > /dev/tty
+    echo -e "${GREEN}Info: $msg${NC}" > /dev/tty
 }
 
 generateName(){
@@ -29,13 +29,13 @@ generateName(){
 }
 
 setVars(){
-    REPO_PATH="/usr/local/src/misp-modules"
     PROJECT_NAME=$(generateName "misp")
     CONTAINER=$(generateName "modules")
     STORAGE_POOL_NAME=$(generateName "misp")
     NETWORK_NAME=$(generateName "net")
     NETWORK_NAME=${NETWORK_NAME:0:15}
     LXC_EXEC="lxc exec $CONTAINER"
+    INFO_TEMPLATE_FILE="./templates/modules_info.json"
 }
 
 setupLXD(){
@@ -43,12 +43,6 @@ lxc project create "$PROJECT_NAME"
 lxc project switch "$PROJECT_NAME"
 lxc storage create "$STORAGE_POOL_NAME" "dir"
 lxc network create "$NETWORK_NAME"
-}
-
-getMISPModulesCommitID(){
-    current_head=$(lxc exec $CONTAINER -- cat $REPO_PATH/.git/HEAD | awk '{print $2}')
-
-    echo "$(lxc exec $CONTAINER -- cat $REPO_PATH/.git/$current_head)"
 }
 
 installMISPModules(){
@@ -73,7 +67,7 @@ installMISPModules(){
 }
 
 createImage(){
-    commit_id=$(getMISPModulesCommitID)
+    commit_id=$(getModulesCommitID)
     lxc stop $CONTAINER
     lxc publish $CONTAINER --alias $IMAGE
     #setImageDescription "$version" "$commit_id" "$IMAGE"
@@ -111,6 +105,26 @@ checkSoftwareDependencies() {
     done
 }
 
+getModulesCommitID(){
+    local path=/usr/local/src/misp-modules
+    current_branch=$(lxc exec $CONTAINER -- cat $path/.git/HEAD | awk '{print $2}')
+    echo "$(lxc exec $CONTAINER -- cat $path/.git/$current_branch)" 
+}
+
+
+addModulesInfo(){
+    local commit_id=$(getModulesCommitID)
+    local date=$(date '+%Y-%m-%d %H:%M:%S')
+
+    # Modify the JSON template as needed using jq
+    jq --arg commit_id "$commit_id" --arg date "$date" \
+   '.commit_id = $commit_id | .creation_date = $date' \
+   "$INFO_TEMPLATE_FILE" > info.json
+
+    lxc exec $CONTAINER -- mkdir -p /etc/misp_modules_info
+    lxc file push info.json ${CONTAINER}/etc/misp_modules_info/
+    rm info.json
+}
 
 # Main
 checkSoftwareDependencies
@@ -129,17 +143,19 @@ setVars
 setupLXD
 lxc launch ubuntu:22.04 "$CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
 installMISPModules
-sleep 2
-if ${LXC_EXEC} -- "systemctl is-active --quiet misp-modules"; then
+addModulesInfo
+sleep 10
+if [ "$(${LXC_EXEC} systemctl is-active misp-modules)" = "active" ]; then
     okay "Service misp-modules is running."
 else
     error "Service misp-modules is not running."
-    cleanupProject
+    lxc stop $CONTAINER
+    cleanupProject "$PROJECT_NAME"
     lxc storage delete "$STORAGE_POOL_NAME"
     lxc network delete "$NETWORK_NAME"
     exit 1
 fi
 createImage
-# cleanupProject
-# lxc storage delete "$STORAGE_POOL_NAME"
-# lxc network delete "$NETWORK_NAME"
+cleanupProject "$PROJECT_NAME"
+lxc storage delete "$STORAGE_POOL_NAME"
+lxc network delete "$NETWORK_NAME"
