@@ -33,7 +33,7 @@ error() {
 
 warn() {
     local msg=$1
-    echo -e "${Yellow}Warning: $msg" > /dev/tty
+    echo -e "${YELLOW}Warning: $msg${NC}" > /dev/tty
 }
 
 coreCAKE () {
@@ -410,7 +410,7 @@ getIntallationConfig(){
     read -p "Name of the misp project (default: $default_misp_project): " misp_project
     PROJECT_NAME=${misp_project:-$default_misp_project}
     if checkRessourceExist "project" "$PROJECT_NAME"; then
-        echo -e "${RED}Error: Project '$PROJECT_NAME' already exists.${NC}"
+        error "Project '$PROJECT_NAME' already exists."
         exit 1
     fi
 
@@ -418,7 +418,7 @@ getIntallationConfig(){
     read -e -p "What is the path to the misp image (default: $default_misp_img): " misp_img
     misp_img=${misp_img:-$default_misp_img}
     if [ ! -f "$misp_img" ]; then
-        echo -e "${RED}Error${NC}: The specified file does not exist."
+        error "The specified file does not exist."
         exit 1
     fi
     MISP_IMAGE=$misp_img
@@ -426,7 +426,7 @@ getIntallationConfig(){
     read -p "Name of the misp container (default: $default_misp_name): " misp_name
     MISP_CONTAINER=${misp_name:-$default_misp_name}
     if checkRessourceExist "container" "$MISP_CONTAINER"; then
-        echo -e "${RED}Error: Container '$MISP_CONTAINER' already exists.${NC}"
+        error "Container '$MISP_CONTAINER' already exists."
         exit 1
     fi
 
@@ -439,7 +439,7 @@ getIntallationConfig(){
     read -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
     mysql_img=${mysql_img:-$default_mysql_img}
     if [ ! -f "$mysql_img" ]; then
-        echo -e "${RED}Error${NC}: The specified file does not exist."
+        error "The specified file does not exist."
         exit 1
     fi
     MYSQL_IMAGE=$mysql_img
@@ -447,7 +447,7 @@ getIntallationConfig(){
     read -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
     MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
     if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
-    echo -e "${RED}Error: Container '$MYSQL_CONTAINER' already exists.${NC}"
+    error "Container '$MYSQL_CONTAINER' already exists."
     exit 1
     fi
     # Ask for credentials
@@ -470,7 +470,7 @@ getIntallationConfig(){
     read -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
     redis_img=${redis_img:-$default_redis_img}
     if [ ! -f "$redis_img" ]; then
-        echo -e "${RED}Error${NC}: The specified file does not exist."
+        error "The specified file does not exist."
         exit 1
     fi
     REDIS_IMAGE=$redis_img
@@ -478,7 +478,7 @@ getIntallationConfig(){
     read -p "Name of the Redis container (default: $default_redis_name): " redis_name
     REDIS_CONTAINER=${redis_name:-$default_redis_name}
     if checkRessourceExist "container" "$REDIS_CONTAINER"; then
-        echo -e "${RED}Error: Container '$REDIS_CONTAINER' already exists.${NC}"
+        error "Container '$REDIS_CONTAINER' already exists."
         exit 1
     fi
     # fi
@@ -773,7 +773,7 @@ if $modules; then
 fi
 info "9" "Update Galaxies, ObjectTemplates, Warninglists, Noticelists and Templates"
 updateGOWNT
-if $prod; then
+if $PROD; then
     info "10" "Set MISP.live for production"
     ${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin setSetting MISP.live true"
     warn "MISP runs in production mode!"
