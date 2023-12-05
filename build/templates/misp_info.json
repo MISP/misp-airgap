@@ -1,0 +1,13 @@
+{
+    "misp_version": "",
+    "commit_id": "",
+    "creation_date": "",
+    "description": "Containerized MISP instance for threat intelligence sharing",
+    "installer": {
+        "commit_id": "",
+        "sha1": "",
+        "sha256": "",
+        "sha384": "",
+        "sha512": ""
+    }
+  }
