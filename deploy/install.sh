@@ -18,6 +18,7 @@ setVars(){
     LXC_MISP="lxc exec ${MISP_CONTAINER}"
     LXC_REDIS="lxc exec ${REDIS_CONTAINER}"
     LXC_MYSQL="lxc exec ${MYSQL_CONTAINER}"
+    REDIS_CONTAINER_PORT="6380"
 }
 
 info () {
@@ -162,8 +163,8 @@ coreCAKE () {
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_enable" false
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_host" "127.0.0.1"
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_port" 50000
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "localhost"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" 6379
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$REDIS_CONTAINER.lxd"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $REDIS_CONTAINER_PORT
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_database" 1
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_namespace" "mispq"
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_event_notifications_enable" false
@@ -186,7 +187,7 @@ coreCAKE () {
     # else
     #     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "127.0.0.1"
     # fi
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" 6379
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_database" 13
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_password" ""
 
@@ -644,11 +645,13 @@ importImages(){
     fi
     lxc image import $REDIS_IMAGE --alias $REDIS_IMAGE_NAME
 
-    MODULES_IMAGE_NAME=$(generateName "modules")
-    if checkRessourceExist "image" "$MODULES_IMAGE_NAME"; then
-        error "Image '$MODULES_IMAGE_NAME' already exists."
+    if $modules; then
+        MODULES_IMAGE_NAME=$(generateName "modules")
+        if checkRessourceExist "image" "$MODULES_IMAGE_NAME"; then
+            error "Image '$MODULES_IMAGE_NAME' already exists."
+        fi
+        lxc image import $MODULES_IMAGE --alias $MODULES_IMAGE_NAME
     fi
-    lxc image import $MODULES_IMAGE --alias $MODULES_IMAGE_NAME
 }
 
 
@@ -712,10 +715,36 @@ EOF
 
 }
 
-configureRedis(){
+configureRedisContainer(){
     ## Cofigure remote access
     lxc exec $REDIS_CONTAINER -- sed -i "s/^bind .*/bind 0.0.0.0/" "/etc/redis/redis.conf"
+    lxc exec $REDIS_CONTAINER -- sed -i "s/^port .*/port $REDIS_CONTAINER_PORT/" "/etc/redis/redis.conf"
     lxc exec $REDIS_CONTAINER -- systemctl restart redis-server
+}
+
+configureMISPforRedis(){
+    # modify config.php
+    ${LXC_MISP} -- sed -i "s/'host' => '127.0.0.1'/'host' => '$REDIS_CONTAINER.lxd'/; s/'port' => 6379/'port' => $REDIS_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
+
+    createRedisSocket
+}
+
+createRedisSocket(){
+    local file_path="/etc/redis/redis.conf"
+    local lines_to_add="# create a unix domain socket to listen on\nunixsocket /var/run/redis/redis.sock\n# set permissions for the socket\nunixsocketperm 775"
+
+    ${LXC_MISP} -- usermod -g www-data redis
+    ${LXC_MISP} -- mkdir -p /var/run/redis/
+    ${LXC_MISP} -- chown -R redis:www-data /var/run/redis
+    ${LXC_MISP} -- cp "$file_path" "$file_path.bak"
+    ${LXC_MISP} -- bash -c "echo -e \"$lines_to_add\" | cat - \"$file_path\" >tempfile && mv tempfile \"$file_path\""
+    ${LXC_MISP} -- service redis-server restart
+
+    # Modify php.ini
+    local php_ini_path="/etc/php/7.4/apache2/php.ini" 
+    local socket_path="/var/run/redis/redis.sock"
+    ${LXC_MISP} -- sed -i "s|;session.save_path = \"/var/lib/php/sessions\"|session.save_path = \"$socket_path\"|; s|session.save_handler = files|session.save_handler = redis|" $php_ini_path
+    ${LXC_MISP} -- sudo service apache2 restart
 }
 
 configureMISPModules(){
@@ -758,7 +787,8 @@ waitForContainer $MYSQL_CONTAINER
 configureMySQL
 info "6" "Configure Redis"
 waitForContainer $REDIS_CONTAINER
-configureRedis
+configureRedisContainer
+configureMISPforRedis
 info "7" "Create Keys"
 setupGnuPG
 # Create new auth key
