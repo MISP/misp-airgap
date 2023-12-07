@@ -57,11 +57,6 @@ coreCAKE () {
 
     # Change base url, either with this CLI command or in the UI
     [[ ! -z ${MISP_BASEURL} ]] && ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Baseurl $MISP_BASEURL
-    # example: 'baseurl' => 'https://<your.FQDN.here>',
-    # alternatively, you can leave this field empty if you would like to use relative pathing in MISP
-    # 'baseurl' => '',
-    # The base url of the application (in the format https://www.mymispinstance.com) as visible externally/by other MISPs.
-    # MISP will encode this URL in sharing groups when including itself. If this value is not set, the baseurl is used as a fallback.
     [[ ! -z ${MISP_BASEURL} ]] && ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.external_baseurl" ${MISP_BASEURL}
 
     # Enable GnuPG
@@ -281,8 +276,6 @@ setupGnuPG() {
         echo "Existing key deleted"
     }
 
-    # The email address should match the one set in the config.php
-    # set in the configuration menu in the administration menu configuration file
     ${LXC_MISP} -- sudo -u www-data -H sh -c "echo \"%echo Generating a default key
         Key-Type: default
         Key-Length: $GPG_KEY_LENGTH
@@ -329,10 +322,6 @@ checkRessourceExist() {
     esac
 
     return $?
-}
-
-checkForDefaultValue(){
-    echo "TODO"
 }
 
 waitForContainer() {
@@ -390,7 +379,7 @@ getIntallationConfig(){
     default_misp_img="../build/images/misp.tar.gz"
     default_misp_name=$(generateName "misp")
 
-#    default_mysql="yes"
+    # default_mysql="yes"
     default_mysql_img="../build/images/mysql.tar.gz"
     default_mysql_name=$(generateName "mysql")
     default_mysql_user="misp"
@@ -398,7 +387,7 @@ getIntallationConfig(){
     default_mysql_db="misp"
     default_mysql_root_pwd="misp"
 
-#    default_redis="yes"
+    # default_redis="yes"
     default_redis_img="../build/images/redis.tar.gz"
     default_redis_name=$(generateName "redis")
 
@@ -434,11 +423,6 @@ getIntallationConfig(){
     fi
 
     # Ask for mysql installation
-    # read -p "Do you want to install a mysql instance (y/n, default: $default_mysql): " mysql
-    # mysql=${mysql:-$default_mysql}
-    # mysql=$(echo "$mysql" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
-    # if $mysql; then
-    # Ask for image
     read -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
     mysql_img=${mysql_img:-$default_mysql_img}
     if [ ! -f "$mysql_img" ]; then
@@ -465,11 +449,6 @@ getIntallationConfig(){
     # fi
 
     # Ask for redis installation 
-    # read -p "Do you want to install a Redis instance (y/n, default: $default_redis): " redis
-    # redis=${redis:-$default_redis}
-    # redis=$(echo "$redis" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
-    # if $redis; then
-    # Ask for image
     read -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
     redis_img=${redis_img:-$default_redis_img}
     if [ ! -f "$redis_img" ]; then
@@ -521,6 +500,21 @@ getIntallationConfig(){
     read -p "Do you want to use this setup in production (y/n, default: $default_prod): " prod
     prod=${prod:-$default_prod} 
     PROD=$(echo "$prod" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+
+    if $PROD; then
+        # Check if any password is set to default
+        declare -A defaults=(
+        ["MYSQL_PASSWORD"]="misp"
+        ["MYSQL_ROOT_PASSWORD"]="misp"
+        )
+
+        for key in "${!defaults[@]}"; do
+            if [ "${!key}" = "${defaults[$key]}" ]; then
+                error "The value of '$key' is using the default value. Please modify all passwords before running the script in production."
+                exit 1
+            fi
+        done
+    fi
 
     # Output values set by the user
     echo -e "\nValues set:"
@@ -689,20 +683,6 @@ configureMySQL(){
     lxc exec $MYSQL_CONTAINER -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
     lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mysql
 
-    # ## Check connection + import schema
-    # table_count=$(${LXC_MISP} -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
-    # if [ $? -eq 0 ]; then
-    #                 echo -e "${GREEN}Connected to database successfully!${NC}"
-    #                 if [ $table_count -lt 73 ]; then
-    #                     echo "Database misp is empty, importing tables from misp container ..."
-    #                     ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $MISP_PATH/MISP/INSTALL/MYSQL.sql"
-    #                 else
-    #                     echo "Database misp available"
-    #                 fi
-    # else
-    #     error $table_count
-    # fi
-
     ## secure MySQL installation
     lxc exec $MYSQL_CONTAINER -- mysqladmin -u root password "$MYSQL_ROOT_PASSWORD"
     lxc exec $MYSQL_CONTAINER -- mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
@@ -711,10 +691,6 @@ configureMySQL(){
     DROP DATABASE IF EXISTS test;
     FLUSH PRIVILEGES;
 EOF
-
-    ## Update Database
-    #${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin runUpdates"
-
 }
 
 configureRedisContainer(){
@@ -727,12 +703,6 @@ configureRedisContainer(){
 configureMISPforRedis(){
     # CakeResque redis
     ${LXC_MISP} -- sed -i "s/'host' => '127.0.0.1'/'host' => '$REDIS_CONTAINER.lxd'/; s/'port' => 6379/'port' => $REDIS_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
-    # # ZeroMQ redis
-    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$REDIS_CONTAINER.lxd"
-    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $REDIS_CONTAINER_PORT
-    # # MISP redis
-    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
-    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
 }
 
 createRedisSocket(){
@@ -837,7 +807,7 @@ configureMISPModules(){
     ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_csvimport_enabled" true
 
     ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_pdfexport_enabled" true
-    
+
     # Set API_Required modules to false
     PLUGS=(Plugin.Enrichment_cuckoo_submit_enabled
          Plugin.Enrichment_vmray_submit_enabled
@@ -915,11 +885,13 @@ waitForContainer $MISP_CONTAINER
 configureMISPForDB
 configureMISPforRedis
 initializeDB
+
 # start workers
 ${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh
 
 info "7" "Create Keys"
 setupGnuPG
+
 # Create new auth key
 ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} UserInit
 AUTH_KEY=$(${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake user change_authkey admin@admin.test | grep -oP ': \K.*'")
@@ -930,6 +902,7 @@ coreCAKE
 if $modules; then
     configureMISPModules
 fi
+
 info "9" "Update Galaxies, ObjectTemplates, Warninglists, Noticelists and Templates"
 updateGOWNT
 
