@@ -711,7 +711,7 @@ configureMySQL(){
 EOF
 
     ## Update Database
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin runUpdates"
+    #${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin runUpdates"
 
 }
 
@@ -738,6 +738,7 @@ createRedisSocket(){
     ${LXC_MISP} -- chown -R redis:www-data /var/run/redis
     ${LXC_MISP} -- cp "$file_path" "$file_path.bak"
     ${LXC_MISP} -- bash -c "echo -e \"$lines_to_add\" | cat - \"$file_path\" >tempfile && mv tempfile \"$file_path\""
+    ${LXC_MISP} -- usermod -aG redis www-data
     ${LXC_MISP} -- service redis-server restart
 
     # Modify php.ini
@@ -779,16 +780,17 @@ info "2" "Import Images"
 importImages
 info "3" "Create Container"
 launchContainers
-info "4" "Configure MISP for DB"
+info "4" "Configure MISP for DB + Redis"
 waitForContainer $MISP_CONTAINER
 configureMISPForDB
+configureMISPforRedis
 info "5" "Configure and Update MySQL DB"
 waitForContainer $MYSQL_CONTAINER
 configureMySQL
 info "6" "Configure Redis"
 waitForContainer $REDIS_CONTAINER
 configureRedisContainer
-configureMISPforRedis
+${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin runUpdates"
 info "7" "Create Keys"
 setupGnuPG
 # Create new auth key
