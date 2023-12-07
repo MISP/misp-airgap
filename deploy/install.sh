@@ -100,6 +100,12 @@ coreCAKE () {
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_verify_host" false
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_allow_self_signed" true
 
+    # Provisional Action tunes
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_url" "http://127.0.0.1"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_port" 6666
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_timeout" 10
+
     # Various plugin sightings settings
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_policy" 0
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_anonymise" false
@@ -697,7 +703,7 @@ configureMySQL(){
     #     error $table_count
     # fi
 
-    ## secure mysql installation
+    ## secure MySQL installation
     lxc exec $MYSQL_CONTAINER -- mysqladmin -u root password "$MYSQL_ROOT_PASSWORD"
     lxc exec $MYSQL_CONTAINER -- mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
     DELETE FROM mysql.user WHERE User='';
@@ -787,50 +793,99 @@ configureMISPModules(){
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_services_port" 6666
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_timeout" 300
 
-    # # Enable additional module settings
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_bgpranking_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_countrycode_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_advanced_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cpe_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dns_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_eql_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_steroids_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ipasn_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_reversedns_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_syntax_validator_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_query_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_wiki_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatminer_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatcrowd_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hashdd_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_rbl_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_syntax_validator_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_stix2_pattern_syntax_validator_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_queries_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dbl_spamhaus_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_scam_check_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_macvendors_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_qrcode_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ocr_enrich_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pdf_enrich_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_docx_enrich_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_xlsx_enrich_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pptx_enrich_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ods_enrich_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_odt_enrich_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_urlhaus_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_malwarebazaar_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_html_to_markdown_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_socialscan_enabled" true
+    # Enable additional module settings
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_bgpranking_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_countrycode_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_advanced_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cpe_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dns_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_eql_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_steroids_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ipasn_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_reversedns_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_syntax_validator_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_query_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_wiki_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatminer_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatcrowd_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hashdd_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_rbl_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_syntax_validator_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_stix2_pattern_syntax_validator_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_queries_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dbl_spamhaus_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_scam_check_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_macvendors_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_qrcode_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ocr_enrich_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pdf_enrich_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_docx_enrich_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_xlsx_enrich_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pptx_enrich_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ods_enrich_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_odt_enrich_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_urlhaus_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_malwarebazaar_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_html_to_markdown_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_socialscan_enabled" true
 
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_ocr_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_mispjson_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_openiocimport_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_threatanalyzer_import_enabled" true
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_csvimport_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_ocr_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_mispjson_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_openiocimport_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_threatanalyzer_import_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_csvimport_enabled" true
 
-    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_pdfexport_enabled" true
+    ${LXC_MISP} -- ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_pdfexport_enabled" true
+    
+    # Set API_Required modules to false
+    PLUGS=(Plugin.Enrichment_cuckoo_submit_enabled
+         Plugin.Enrichment_vmray_submit_enabled
+         Plugin.Enrichment_circl_passivedns_enabled
+         Plugin.Enrichment_circl_passivessl_enabled
+         Plugin.Enrichment_domaintools_enabled
+         Plugin.Enrichment_eupi_enabled
+         Plugin.Enrichment_farsight_passivedns_enabled
+         Plugin.Enrichment_passivetotal_enabled
+         Plugin.Enrichment_passivetotal_enabled
+         Plugin.Enrichment_virustotal_enabled
+         Plugin.Enrichment_whois_enabled
+         Plugin.Enrichment_shodan_enabled
+         Plugin.Enrichment_geoip_asn_enabled
+         Plugin.Enrichment_geoip_city_enabled
+         Plugin.Enrichment_geoip_country_enabled
+         Plugin.Enrichment_iprep_enabled
+         Plugin.Enrichment_otx_enabled
+         Plugin.Enrichment_vulndb_enabled
+         Plugin.Enrichment_crowdstrike_falcon_enabled
+         Plugin.Enrichment_onyphe_enabled
+         Plugin.Enrichment_xforceexchange_enabled
+         Plugin.Enrichment_vulners_enabled
+         Plugin.Enrichment_macaddress_io_enabled
+         Plugin.Enrichment_intel471_enabled
+         Plugin.Enrichment_backscatter_io_enabled
+         Plugin.Enrichment_hibp_enabled
+         Plugin.Enrichment_greynoise_enabled
+         Plugin.Enrichment_joesandbox_submit_enabled
+         Plugin.Enrichment_virustotal_public_enabled
+         Plugin.Enrichment_apiosintds_enabled
+         Plugin.Enrichment_urlscan_enabled
+         Plugin.Enrichment_securitytrails_enabled
+         Plugin.Enrichment_apivoid_enabled
+         Plugin.Enrichment_assemblyline_submit_enabled
+         Plugin.Enrichment_assemblyline_query_enabled
+         Plugin.Enrichment_ransomcoindb_enabled
+         Plugin.Enrichment_lastline_query_enabled
+         Plugin.Enrichment_sophoslabs_intelix_enabled
+         Plugin.Enrichment_cytomic_orion_enabled
+         Plugin.Enrichment_censys_enrich_enabled
+         Plugin.Enrichment_trustar_enrich_enabled
+         Plugin.Enrichment_recordedfuture_enabled
+         Plugin.ElasticSearch_logging_enable
+         Plugin.S3_enable)
+  for PLUG in "${PLUGS[@]}"; do
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting ${PLUG} false 2> /dev/null
+  done
 }
 
 # Main
