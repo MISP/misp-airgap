@@ -182,11 +182,7 @@ coreCAKE () {
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.proposals_block_attributes" false
 
   # Redis block
-    # if $redis; then
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
-    # else
-    #     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "127.0.0.1"
-    # fi
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_database" 13
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_password" ""
@@ -687,19 +683,19 @@ configureMySQL(){
     lxc exec $MYSQL_CONTAINER -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
     lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mysql
 
-    ## Check connection + import schema
-    table_count=$(${LXC_MISP} -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
-    if [ $? -eq 0 ]; then
-                    echo -e "${GREEN}Connected to database successfully!${NC}"
-                    if [ $table_count -lt 73 ]; then
-                        echo "Database misp is empty, importing tables from misp container ..."
-                        ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $MISP_PATH/MISP/INSTALL/MYSQL.sql"
-                    else
-                        echo "Database misp available"
-                    fi
-    else
-        error $table_count
-    fi
+    # ## Check connection + import schema
+    # table_count=$(${LXC_MISP} -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
+    # if [ $? -eq 0 ]; then
+    #                 echo -e "${GREEN}Connected to database successfully!${NC}"
+    #                 if [ $table_count -lt 73 ]; then
+    #                     echo "Database misp is empty, importing tables from misp container ..."
+    #                     ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $MISP_PATH/MISP/INSTALL/MYSQL.sql"
+    #                 else
+    #                     echo "Database misp available"
+    #                 fi
+    # else
+    #     error $table_count
+    # fi
 
     ## secure mysql installation
     lxc exec $MYSQL_CONTAINER -- mysqladmin -u root password "$MYSQL_ROOT_PASSWORD"
@@ -723,10 +719,14 @@ configureRedisContainer(){
 }
 
 configureMISPforRedis(){
-    # modify config.php
+    # CakeResque redis
     ${LXC_MISP} -- sed -i "s/'host' => '127.0.0.1'/'host' => '$REDIS_CONTAINER.lxd'/; s/'port' => 6379/'port' => $REDIS_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
-
-    createRedisSocket
+    # # ZeroMQ redis
+    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$REDIS_CONTAINER.lxd"
+    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $REDIS_CONTAINER_PORT
+    # # MISP redis
+    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
+    # ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
 }
 
 createRedisSocket(){
@@ -746,6 +746,24 @@ createRedisSocket(){
     local socket_path="/var/run/redis/redis.sock"
     ${LXC_MISP} -- sed -i "s|;session.save_path = \"/var/lib/php/sessions\"|session.save_path = \"$socket_path\"|; s|session.save_handler = files|session.save_handler = redis|" $php_ini_path
     ${LXC_MISP} -- sudo service apache2 restart
+}
+
+initializeDB(){
+    ## Check connection + import schema to MySQL
+    table_count=$(${LXC_MISP} -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}Connected to database successfully!${NC}"
+        if [ $table_count -lt 73 ]; then
+            echo "Database misp is empty, importing tables from misp container ..."
+            ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $MISP_PATH/MISP/INSTALL/MYSQL.sql"
+        else
+            echo "Database misp available"
+        fi
+    else
+        error $table_count
+    fi
+    # Update DB
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin runUpdates
 }
 
 configureMISPModules(){
@@ -768,6 +786,51 @@ configureMISPModules(){
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_services_url" "$MODULES_CONTAINER.lxd"
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_services_port" 6666
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Export_timeout" 300
+
+    # # Enable additional module settings
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_bgpranking_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_countrycode_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_advanced_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cpe_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dns_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_eql_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_steroids_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ipasn_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_reversedns_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_syntax_validator_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_query_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_wiki_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatminer_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatcrowd_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hashdd_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_rbl_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_syntax_validator_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_stix2_pattern_syntax_validator_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_queries_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dbl_spamhaus_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_scam_check_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_macvendors_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_qrcode_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ocr_enrich_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pdf_enrich_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_docx_enrich_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_xlsx_enrich_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pptx_enrich_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ods_enrich_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_odt_enrich_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_urlhaus_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_malwarebazaar_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_html_to_markdown_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_socialscan_enabled" true
+
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_ocr_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_mispjson_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_openiocimport_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_threatanalyzer_import_enabled" true
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_csvimport_enabled" true
+
+    # ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_pdfexport_enabled" true
 }
 
 # Main
@@ -776,25 +839,34 @@ getIntallationConfig
 setVars
 info "1" "Setup LXD Project"
 setupLXD
+
 info "2" "Import Images"
 importImages
+
 info "3" "Create Container"
 launchContainers
-info "4" "Configure MISP for DB + Redis"
+
+info "4" "Configure and Update MySQL DB"
+waitForContainer $MYSQL_CONTAINER
+configureMySQL
+
+info "5" "Configure Redis"
+waitForContainer $REDIS_CONTAINER
+configureRedisContainer
+createRedisSocket
+
+info "6" "Edit MISP Config"
 waitForContainer $MISP_CONTAINER
 configureMISPForDB
 configureMISPforRedis
-info "5" "Configure and Update MySQL DB"
-waitForContainer $MYSQL_CONTAINER
-configureMySQL
-info "6" "Configure Redis"
-waitForContainer $REDIS_CONTAINER
-configureRedisContainer
-${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin runUpdates"
+initializeDB
+# start workers
+${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh
+
 info "7" "Create Keys"
 setupGnuPG
 # Create new auth key
-${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake UserInit" 
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} UserInit
 AUTH_KEY=$(${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake user change_authkey admin@admin.test | grep -oP ': \K.*'")
 lxc exec "$MISP_CONTAINER" -- sh -c "echo 'Authkey: $AUTH_KEY' > /home/misp/MISP-authkey.txt"
 
@@ -805,6 +877,7 @@ if $modules; then
 fi
 info "9" "Update Galaxies, ObjectTemplates, Warninglists, Noticelists and Templates"
 updateGOWNT
+
 if $PROD; then
     info "10" "Set MISP.live for production"
     ${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin setSetting MISP.live true"
