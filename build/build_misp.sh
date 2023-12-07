@@ -63,12 +63,8 @@ installMISP(){
     fi
 
     lxc exec "$container_name" -- bash -c "echo 'misp ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/misp"
-
-    # Install MISP
-    lxc exec "$container_name" -- su "misp" -c "wget --no-cache -O /tmp/INSTALL.sh https://raw.githubusercontent.com/MISP/MISP/2.4/INSTALL/INSTALL.sh"
+    lxc exec "$container_name" -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/main/build/AIRGAP_INSTALL.sh
     lxc exec "$container_name" -- sudo -u "misp" -H sh -c "bash /tmp/INSTALL.sh -c"
-
-    # lxc exec $CONTAINER -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/dev/build/AIRGAP_INSTALL.sh
 
     # set misp.live false
     lxc exec $container_name -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin setSetting MISP.live false --force"
