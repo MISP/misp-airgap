@@ -401,7 +401,7 @@ getIntallationConfig(){
     default_db_partition=""
 
     # Ask for LXD project name
-    read -p "Name of the misp project (default: $default_misp_project): " misp_project
+    read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
     PROJECT_NAME=${misp_project:-$default_misp_project}
     if checkRessourceExist "project" "$PROJECT_NAME"; then
         error "Project '$PROJECT_NAME' already exists."
@@ -409,7 +409,7 @@ getIntallationConfig(){
     fi
 
     # Ask for misp image 
-    read -e -p "What is the path to the misp image (default: $default_misp_img): " misp_img
+    read -r -e -p "What is the path to the misp image (default: $default_misp_img): " misp_img
     misp_img=${misp_img:-$default_misp_img}
     if [ ! -f "$misp_img" ]; then
         error "The specified file does not exist."
@@ -417,7 +417,7 @@ getIntallationConfig(){
     fi
     MISP_IMAGE=$misp_img
     # Ask for name
-    read -p "Name of the misp container (default: $default_misp_name): " misp_name
+    read -r -p "Name of the misp container (default: $default_misp_name): " misp_name
     MISP_CONTAINER=${misp_name:-$default_misp_name}
     if checkRessourceExist "container" "$MISP_CONTAINER"; then
         error "Container '$MISP_CONTAINER' already exists."
@@ -425,7 +425,7 @@ getIntallationConfig(){
     fi
 
     # Ask for mysql installation
-    read -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
+    read -r -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
     mysql_img=${mysql_img:-$default_mysql_img}
     if [ ! -f "$mysql_img" ]; then
         error "The specified file does not exist."
@@ -433,25 +433,25 @@ getIntallationConfig(){
     fi
     MYSQL_IMAGE=$mysql_img
     # Ask for name
-    read -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
+    read -r -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
     MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
     if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
     error "Container '$MYSQL_CONTAINER' already exists."
     exit 1
     fi
     # Ask for credentials
-    read -p "MySQL Database (default: $default_mysql_db): " mysql_db
+    read -r -p "MySQL Database (default: $default_mysql_db): " mysql_db
     MYSQL_DATABASE=${mysql_db:-$default_mysql_db}
-    read -p "MySQL User (default: $default_mysql_user): " mysql_user
+    read -r -p "MySQL User (default: $default_mysql_user): " mysql_user
     MYSQL_USER=${mysql_user:-$default_mysql_user}
-    read -p "MySQL User Password (default: $default_mysql_pwd): " mysql_pwd
+    read -r -p "MySQL User Password (default: $default_mysql_pwd): " mysql_pwd
     MYSQL_PASSWORD=${mysql_pwd:-$default_mysql_pwd}
-    read -p "MySQL Root Password (default: $default_mysql_root_pwd): " mysql_root_pwd
+    read -r -p "MySQL Root Password (default: $default_mysql_root_pwd): " mysql_root_pwd
     MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
     # fi
 
     # Ask for redis installation 
-    read -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
+    read -r -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
     redis_img=${redis_img:-$default_redis_img}
     if [ ! -f "$redis_img" ]; then
         error "The specified file does not exist."
@@ -459,7 +459,7 @@ getIntallationConfig(){
     fi
     REDIS_IMAGE=$redis_img
     # Ask for name
-    read -p "Name of the Redis container (default: $default_redis_name): " redis_name
+    read -r -p "Name of the Redis container (default: $default_redis_name): " redis_name
     REDIS_CONTAINER=${redis_name:-$default_redis_name}
     if checkRessourceExist "container" "$REDIS_CONTAINER"; then
         error "Container '$REDIS_CONTAINER' already exists."
@@ -468,12 +468,12 @@ getIntallationConfig(){
     # fi
 
     # Ask for modules installation
-    read -p "Do you want to install MISP Modules (y/n, default: $default_modules): " modules
+    read -r -p "Do you want to install MISP Modules (y/n, default: $default_modules): " modules
     modules=${modules:-$default_modules}
     modules=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
     if $modules; then
         # Ask for image
-        read -e -p "What is the path to the Modules image (default: $default_modules_img): " modules_img
+        read -r -e -p "What is the path to the Modules image (default: $default_modules_img): " modules_img
         modules_img=${modules_img:-$default_modules_img}
         if [ ! -f "$modules_img" ]; then
             error "The specified file does not exist."
@@ -481,7 +481,7 @@ getIntallationConfig(){
         fi
         MODULES_IMAGE=$modules_img
         # Ask for name
-        read -p "Name of the Modules container (default: $default_modules_name): " modules_name
+        read -r -p "Name of the Modules container (default: $default_modules_name): " modules_name
         MODULES_CONTAINER=${modules_name:-$default_modules_name}
         if checkRessourceExist "container" "$MODULES_CONTAINER"; then
             error "Container '$MODULES_CONTAINER' already exists."
@@ -491,15 +491,15 @@ getIntallationConfig(){
     fi
 
     # Ask for dedicated partitions
-    read -p "Dedicated partition for MISP container (leave blank if none): " app_partition
+    read -r -p "Dedicated partition for MISP container (leave blank if none): " app_partition
     APP_PARTITION=${app_partition:-$default_app_partition}
     # if $mysql || $redis; then
-    read -p "Dedicated partition for DB container (leave blank if none): " db_partition
+    read -r -p "Dedicated partition for DB container (leave blank if none): " db_partition
     DB_PARTITION=${db_partition:-$default_db_partition}
     # fi
 
     # Ask if used in prod
-    read -p "Do you want to use this setup in production (y/n, default: $default_prod): " prod
+    read -r -p "Do you want to use this setup in production (y/n, default: $default_prod): " prod
     prod=${prod:-$default_prod} 
     PROD=$(echo "$prod" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
 
@@ -629,26 +629,26 @@ importImages(){
     if checkRessourceExist "image" "$MISP_IMAGE_NAME"; then
         error "Image '$MISP_IMAGE_NAME' already exists."
     fi
-    lxc image import $MISP_IMAGE --alias $MISP_IMAGE_NAME
+    lxc image import "$MISP_IMAGE" --alias "$MISP_IMAGE_NAME"
 
     MYSQL_IMAGE_NAME=$(generateName "mysql")
     if checkRessourceExist "image" "$MYSQL_IMAGE_NAME"; then
         error "Image '$MYSQL_IMAGE_NAME' already exists."
     fi
-    lxc image import $MYSQL_IMAGE --alias $MYSQL_IMAGE_NAME
+    lxc image import "$MYSQL_IMAGE" --alias "$MYSQL_IMAGE_NAME"
 
     REDIS_IMAGE_NAME=$(generateName "redis")
     if checkRessourceExist "image" "$REDIS_IMAGE_NAME"; then
         error "Image '$REDIS_IMAGE_NAME' already exists."
     fi
-    lxc image import $REDIS_IMAGE --alias $REDIS_IMAGE_NAME
+    lxc image import "$REDIS_IMAGE" --alias "$REDIS_IMAGE_NAME"
 
     if $modules; then
         MODULES_IMAGE_NAME=$(generateName "modules")
         if checkRessourceExist "image" "$MODULES_IMAGE_NAME"; then
             error "Image '$MODULES_IMAGE_NAME' already exists."
         fi
-        lxc image import $MODULES_IMAGE --alias $MODULES_IMAGE_NAME
+        lxc image import "$MODULES_IMAGE" --alias "$MODULES_IMAGE_NAME"
     fi
 }
 
@@ -860,10 +860,67 @@ configureMISPModules(){
   done
 }
 
+deleteLXDProject(){
+    local project="$1"
+
+    echo "Starting cleanup ..."
+    echo "Deleting container in project"
+    for container in $(lxc query "/1.0/containers?recursion=1&project=${project}" | jq .[].name -r); do
+        lxc delete --project "${project}" -f "${container}"
+    done
+
+    echo "Deleting images in project"
+    for image in $(lxc query "/1.0/images?recursion=1&project=${project}" | jq .[].fingerprint -r); do
+        lxc image delete --project "${project}" "${image}"
+    done
+
+    echo "Deleting profiles in project"
+    for profile in $(lxc query "/1.0/profiles?recursion=1&project=${project}" | jq .[].name -r); do
+    if [ "${profile}" = "default" ]; then
+        printf 'config: {}\ndevices: {}' | lxc profile edit --project "${project}" default
+        continue
+    fi
+    lxc profile delete --project "${project}" "${profile}"
+    done
+
+    echo "Deleting project"
+    lxc project delete "${project}"
+}
+
+err() {
+    local parent_lineno="$1"
+    local message="$2"
+    local code="${3:-1}"
+
+    if [[ -n "$message" ]] ; then
+        error "Line ${parent_lineno}: ${message}: exiting with status ${code}"
+    else
+        error "Line ${parent_lineno}: exiting with status ${code}"
+    fi
+
+    deleteLXDProject "$PROJECT_NAME"
+    lxc storage delete "$APP_STORAGE"
+    lxc storage delete "$DB_STORAGE"
+    lxc network delete "$NETWORK_NAME"
+    exit "${code}"
+}
+
+interrupt() {
+    warn "Script interrupted by user. Delete project and exit ..."
+    deleteLXDProject "$PROJECT_NAME"
+    lxc storage delete "$APP_STORAGE"
+    lxc storage delete "$DB_STORAGE"
+    lxc network delete "$NETWORK_NAME"
+    exit 130
+}
+
 # Main
 checkSoftwareDependencies
 getIntallationConfig
 setVars
+trap 'interrupt' INT
+trap 'err ${LINENO}' ERR
+
 info "1" "Setup LXD Project"
 setupLXD
 
@@ -885,7 +942,6 @@ configureRedisContainer
 createRedisSocket
 
 info "6" "Edit MISP Config"
-waitForContainer $MISP_CONTAINER
 configureMISPForDB
 configureMISPforRedis
 initializeDB
