@@ -16,8 +16,6 @@ setVars(){
     MISP_BASEURL="${MISP_BASEURL:-""}"
     LXC_MISP="lxc exec ${MISP_CONTAINER}"
     LXC_MISP="lxc exec ${MISP_CONTAINER}"
-    LXC_REDIS="lxc exec ${REDIS_CONTAINER}"
-    LXC_MYSQL="lxc exec ${MYSQL_CONTAINER}"
     REDIS_CONTAINER_PORT="6380"
 }
 
@@ -892,7 +890,10 @@ configureMISPForDB
 configureMISPforRedis
 initializeDB
 
-# start workers
+# Set misp.live false
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting MISP.live false --force
+
+# Start workers
 ${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh
 
 info "7" "Create Keys"
