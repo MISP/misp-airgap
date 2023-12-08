@@ -21,6 +21,10 @@ setVars(){
     REDIS_CONTAINER_PORT="6380"
 }
 
+getPHPVersion(){
+    ${LXC_MISP} -- bash -c "php -v | head -n 1 | awk '{print \$2}' | cut -d '.' -f 1,2"
+}
+
 info () {
     local step=$1
     local msg=$2
@@ -718,7 +722,7 @@ createRedisSocket(){
     ${LXC_MISP} -- service redis-server restart
 
     # Modify php.ini
-    local php_ini_path="/etc/php/7.4/apache2/php.ini" 
+    local php_ini_path="/etc/php/$PHP_VERSION/apache2/php.ini" 
     local socket_path="/var/run/redis/redis.sock"
     ${LXC_MISP} -- sed -i "s|;session.save_path = \"/var/lib/php/sessions\"|session.save_path = \"$socket_path\"|; s|session.save_handler = files|session.save_handler = redis|" $php_ini_path
     ${LXC_MISP} -- sudo service apache2 restart
@@ -870,6 +874,8 @@ importImages
 
 info "3" "Create Container"
 launchContainers
+waitForContainer $MISP_CONTAINER
+PHP_VERSION=$(getPHPVersion)
 
 info "4" "Configure and Update MySQL DB"
 waitForContainer $MYSQL_CONTAINER
