@@ -356,6 +356,18 @@ checkSoftwareDependencies() {
     done
 }
 
+checkNamingConvention(){
+    local input="$1"
+    local pattern="^[a-zA-Z0-9-]+$"
+
+    if ! [[ "$input" =~ $pattern ]]; then
+        error "Invalid Name. Please use only alphanumeric characters and hyphens."
+        # exit 1
+        return 1
+    fi
+    return 0
+}
+
 getIntallationConfig(){
     # Installer output
     echo
@@ -400,46 +412,82 @@ getIntallationConfig(){
     default_app_partition=""
     default_db_partition=""
 
+    # # Ask for LXD project name
+    # read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
+    # PROJECT_NAME=${misp_project:-$default_misp_project}
+    # checkNamingConvention "$PROJECT_NAME"
+    # if checkRessourceExist "project" "$PROJECT_NAME"; then
+    #     error "Project '$PROJECT_NAME' already exists."
+    #     exit 1
+    # fi
+
     # Ask for LXD project name
-    read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
-    PROJECT_NAME=${misp_project:-$default_misp_project}
-    if checkRessourceExist "project" "$PROJECT_NAME"; then
-        error "Project '$PROJECT_NAME' already exists."
-        exit 1
-    fi
+    while true; do 
+        read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
+        PROJECT_NAME=${misp_project:-$default_misp_project}
+        if ! checkNamingConvention "$PROJECT_NAME"; then
+            continue
+        fi
+        if checkRessourceExist "project" "$PROJECT_NAME"; then
+            error "Project '$PROJECT_NAME' already exists."
+            continue
+        fi
+        break
+    done
 
-    # Ask for misp image 
-    read -r -e -p "What is the path to the misp image (default: $default_misp_img): " misp_img
-    misp_img=${misp_img:-$default_misp_img}
-    if [ ! -f "$misp_img" ]; then
-        error "The specified file does not exist."
-        exit 1
-    fi
-    MISP_IMAGE=$misp_img
-    # Ask for name
-    read -r -p "Name of the misp container (default: $default_misp_name): " misp_name
-    MISP_CONTAINER=${misp_name:-$default_misp_name}
-    if checkRessourceExist "container" "$MISP_CONTAINER"; then
-        error "Container '$MISP_CONTAINER' already exists."
-        exit 1
-    fi
+    # Ask for MISP image 
+    while true; do 
+        read -r -e -p "What is the path to the misp image (default: $default_misp_img): " misp_img
+        misp_img=${misp_img:-$default_misp_img}
+        if [ ! -f "$misp_img" ]; then
+            error "The specified file does not exist."
+            continue
+        fi
+        MISP_IMAGE=$misp_img
+        break
+    done
 
-    # Ask for mysql installation
-    read -r -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
-    mysql_img=${mysql_img:-$default_mysql_img}
-    if [ ! -f "$mysql_img" ]; then
-        error "The specified file does not exist."
-        exit 1
-    fi
-    MYSQL_IMAGE=$mysql_img
-    # Ask for name
-    read -r -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
-    MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
-    if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
-    error "Container '$MYSQL_CONTAINER' already exists."
-    exit 1
-    fi
-    # Ask for credentials
+    # Ask for MISP container name
+    while true; do 
+        read -r -p "Name of the misp container (default: $default_misp_name): " misp_name
+        MISP_CONTAINER=${misp_name:-$default_misp_name}
+        if ! checkNamingConvention "$MISP_CONTAINER"; then
+            continue
+        fi
+        if checkRessourceExist "container" "$MISP_CONTAINER"; then
+            error "Container '$MISP_CONTAINER' already exists."
+            continue
+        fi
+        break
+    done
+
+    # Ask for MySQL image
+    while true; do 
+        read -r -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
+        mysql_img=${mysql_img:-$default_mysql_img}
+        if [ ! -f "$mysql_img" ]; then
+            error "The specified file does not exist."
+            continue
+        fi
+        MYSQL_IMAGE=$mysql_img
+        break
+    done
+
+    # Ask for MySQL container name
+    while true; do 
+        read -r -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
+        MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
+        if ! checkNamingConvention "$MYSQL_CONTAINER"; then
+            continue
+        fi
+        if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
+            error "Container '$MYSQL_CONTAINER' already exists."
+            continue
+        fi
+        break
+    done
+
+    # Ask for MySQL credentials
     read -r -p "MySQL Database (default: $default_mysql_db): " mysql_db
     MYSQL_DATABASE=${mysql_db:-$default_mysql_db}
     read -r -p "MySQL User (default: $default_mysql_user): " mysql_user
@@ -448,55 +496,72 @@ getIntallationConfig(){
     MYSQL_PASSWORD=${mysql_pwd:-$default_mysql_pwd}
     read -r -p "MySQL Root Password (default: $default_mysql_root_pwd): " mysql_root_pwd
     MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
-    # fi
 
-    # Ask for redis installation 
-    read -r -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
-    redis_img=${redis_img:-$default_redis_img}
-    if [ ! -f "$redis_img" ]; then
-        error "The specified file does not exist."
-        exit 1
-    fi
-    REDIS_IMAGE=$redis_img
-    # Ask for name
-    read -r -p "Name of the Redis container (default: $default_redis_name): " redis_name
-    REDIS_CONTAINER=${redis_name:-$default_redis_name}
-    if checkRessourceExist "container" "$REDIS_CONTAINER"; then
-        error "Container '$REDIS_CONTAINER' already exists."
-        exit 1
-    fi
-    # fi
+    # Ask for Redis image
+    while true; do 
+        read -r -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
+        redis_img=${redis_img:-$default_redis_img}
+        if [ ! -f "$redis_img" ]; then
+            error "The specified file does not exist."
+            continue
+        fi
+        REDIS_IMAGE=$redis_img
+        break
+    done
 
-    # Ask for modules installation
+    # Ask for Redis container name
+    while true; do
+        read -r -p "Name of the Redis container (default: $default_redis_name): " redis_name
+        REDIS_CONTAINER=${redis_name:-$default_redis_name}
+        if ! checkNamingConvention "$REDIS_CONTAINER"; then
+            continue
+        fi
+        if checkRessourceExist "container" "$REDIS_CONTAINER"; then
+            error "Container '$REDIS_CONTAINER' already exists."
+            continue
+        fi
+        break
+    done
+
+    # Ask for MISP Modules installation
     read -r -p "Do you want to install MISP Modules (y/n, default: $default_modules): " modules
     modules=${modules:-$default_modules}
     modules=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
     if $modules; then
-        # Ask for image
-        read -r -e -p "What is the path to the Modules image (default: $default_modules_img): " modules_img
-        modules_img=${modules_img:-$default_modules_img}
-        if [ ! -f "$modules_img" ]; then
-            error "The specified file does not exist."
-            exit 1
-        fi
-        MODULES_IMAGE=$modules_img
-        # Ask for name
-        read -r -p "Name of the Modules container (default: $default_modules_name): " modules_name
-        MODULES_CONTAINER=${modules_name:-$default_modules_name}
-        if checkRessourceExist "container" "$MODULES_CONTAINER"; then
-            error "Container '$MODULES_CONTAINER' already exists."
-            exit 1
-        fi
+
+        # Ask for MISP Modules image
+        while true; do
+            read -r -e -p "What is the path to the Modules image (default: $default_modules_img): " modules_img
+            modules_img=${modules_img:-$default_modules_img}
+            if [ ! -f "$modules_img" ]; then
+                error "The specified file does not exist."
+                continue
+            fi
+            MODULES_IMAGE=$modules_img
+            break
+        done
+
+        # Ask for MISP Modules container name
+        while true; do
+            read -r -p "Name of the Modules container (default: $default_modules_name): " modules_name
+            MODULES_CONTAINER=${modules_name:-$default_modules_name}
+            if ! checkNamingConvention "$MODULES_CONTAINER"; then
+                continue
+            fi
+            if checkRessourceExist "container" "$MODULES_CONTAINER"; then
+                error "Container '$MODULES_CONTAINER' already exists."
+                continue
+            fi
+            break
+        done
 
     fi
 
     # Ask for dedicated partitions
     read -r -p "Dedicated partition for MISP container (leave blank if none): " app_partition
     APP_PARTITION=${app_partition:-$default_app_partition}
-    # if $mysql || $redis; then
     read -r -p "Dedicated partition for DB container (leave blank if none): " db_partition
     DB_PARTITION=${db_partition:-$default_db_partition}
-    # fi
 
     # Ask if used in prod
     read -r -p "Do you want to use this setup in production (y/n, default: $default_prod): " prod
