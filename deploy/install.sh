@@ -272,9 +272,9 @@ setupGnuPG() {
     GPG_PASSPHRASE="$(openssl rand -hex 32)"
 
     # Check if the .gnupg directory exists on the LXD container
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "[ -d $MISP_PATH/MISP/.gnupg ]" && {
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "[ -d $PATH_TO_MISP/.gnupg ]" && {
         echo "Existing key found on the container. Deleting..."
-        ${LXC_MISP} -- sudo -u www-data -H sh -c "rm -rf $MISP_PATH/MISP/.gnupg"
+        ${LXC_MISP} -- sudo -u www-data -H sh -c "rm -rf $PATH_TO_MISP/.gnupg"
         echo "Existing key deleted"
     }
 
@@ -291,10 +291,10 @@ setupGnuPG() {
         %commit
     %echo done\" > /tmp/gen-key-script"
 
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $MISP_PATH/MISP/.gnupg --batch --gen-key /tmp/gen-key-script"
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $PATH_TO_MISP/.gnupg --batch --gen-key /tmp/gen-key-script"
 
     # Export the public key to the webroot
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $MISP_PATH/MISP/.gnupg --export --armor $GPG_EMAIL_ADDRESS | tee $MISP_PATH/MISP/app/webroot/gpg.asc"
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $PATH_TO_MISP/.gnupg --export --armor $GPG_EMAIL_ADDRESS | tee $PATH_TO_MISP/app/webroot/gpg.asc"
     ${LXC_MISP} -- rm /tmp/gen-key-script
 }
 
@@ -385,7 +385,6 @@ getIntallationConfig(){
     echo
 
     # set default values
-    MISP_PATH="/var/www/"
     default_confirm="no"
     default_prod="no"
     default_misp_project=$(generateName "misp-project")
@@ -722,11 +721,11 @@ launchContainers(){
 
 configureMISPForDB(){
     ## Edit database conf
-    ${LXC_MISP} -- sed -i "s/'database' => 'misp'/'database' => '$MYSQL_DATABASE'/" $MISP_PATH/MISP/app/Config/database.php
-    ${LXC_MISP} -- sed -i "s/localhost/$MYSQL_CONTAINER.lxd/" $MISP_PATH/MISP/app/Config/database.php
-    ${LXC_MISP} -- sed -i "s/'login' => '.*'/'login' => '$MYSQL_USER'/" "$MISP_PATH/MISP/app/Config/database.php"
-    ${LXC_MISP} -- sed -i "s/8889/3306/" $MISP_PATH/MISP/app/Config/database.php
-    ${LXC_MISP} -- sed -i "s/'password' => '.*'/'password' => '$MYSQL_PASSWORD'/" "$MISP_PATH/MISP/app/Config/database.php"
+    ${LXC_MISP} -- sed -i "s/'database' => 'misp'/'database' => '$MYSQL_DATABASE'/" $PATH_TO_MISP/app/Config/database.php
+    ${LXC_MISP} -- sed -i "s/localhost/$MYSQL_CONTAINER.lxd/" $PATH_TO_MISP/app/Config/database.php
+    ${LXC_MISP} -- sed -i "s/'login' => '.*'/'login' => '$MYSQL_USER'/" "$PATH_TO_MISP/app/Config/database.php"
+    ${LXC_MISP} -- sed -i "s/8889/3306/" $PATH_TO_MISP/app/Config/database.php
+    ${LXC_MISP} -- sed -i "s/'password' => '.*'/'password' => '$MYSQL_PASSWORD'/" "$PATH_TO_MISP/app/Config/database.php"
 
     # Write credentials to MISP
     ${LXC_MISP} -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
@@ -735,9 +734,7 @@ configureMISPForDB(){
 configureMySQL(){
     ## Add user + DB
     lxc exec $MYSQL_CONTAINER -- mysql -u root -e "CREATE DATABASE $MYSQL_DATABASE;"
-    echo "mysql -u root -e CREATE DATABASE $MYSQL_DATABASE;"
     lxc exec $MYSQL_CONTAINER -- mysql -u root -e "GRANT ALL PRIVILEGES ON $MYSQL_DATABASE.* TO '$MYSQL_USER'@'$MISP_CONTAINER.lxd' IDENTIFIED BY '$MYSQL_PASSWORD';"
-    echo "mysql -u root -e GRANT ALL PRIVILEGES ON $MYSQL_DATABASE.* TO '$MYSQL_USER'@'$MISP_CONTAINER.lxd' IDENTIFIED BY '$MYSQL_PASSWORD';"
 
     ## Configure remote access
     lxc exec $MYSQL_CONTAINER -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
@@ -791,7 +788,7 @@ initializeDB(){
         echo -e "${GREEN}Connected to database successfully!${NC}"
         if [ $table_count -lt 73 ]; then
             echo "Database misp is empty, importing tables from misp container ..."
-            ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $MISP_PATH/MISP/INSTALL/MYSQL.sql"
+            ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $PATH_TO_MISP/INSTALL/MYSQL.sql"
         else
             echo "Database misp available"
         fi
@@ -1009,13 +1006,14 @@ ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting MISP.live false --force
 
 # Start workers
 ${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh
+echo "${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh"
 
 info "7" "Create Keys"
 setupGnuPG
 
 # Create new auth key
 ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} UserInit
-AUTH_KEY=$(${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake user change_authkey admin@admin.test | grep -oP ': \K.*'")
+AUTH_KEY=$(${LXC_MISP} -- sudo -u www-data -H sh -c "$PATH_TO_MISP/app/Console/cake user change_authkey admin@admin.test | grep -oP ': \K.*'")
 lxc exec "$MISP_CONTAINER" -- sh -c "echo 'Authkey: $AUTH_KEY' > /home/misp/MISP-authkey.txt"
 
 info "8" "Set MISP Settings"
@@ -1029,7 +1027,7 @@ updateGOWNT
 
 if $PROD; then
     info "10" "Set MISP.live for production"
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "$MISP_PATH/MISP/app/Console/cake Admin setSetting MISP.live true"
+    ${LXC_MISP} -- sudo -u www-data -H sh -c "$PATH_TO_MISP/app/Console/cake Admin setSetting MISP.live true"
     warn "MISP runs in production mode!"
 fi
 
