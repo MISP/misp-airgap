@@ -411,16 +411,7 @@ getIntallationConfig(){
 
     default_app_partition=""
     default_db_partition=""
-
-    # # Ask for LXD project name
-    # read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
-    # PROJECT_NAME=${misp_project:-$default_misp_project}
-    # checkNamingConvention "$PROJECT_NAME"
-    # if checkRessourceExist "project" "$PROJECT_NAME"; then
-    #     error "Project '$PROJECT_NAME' already exists."
-    #     exit 1
-    # fi
-
+    
     # Ask for LXD project name
     while true; do 
         read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
@@ -628,7 +619,7 @@ getIntallationConfig(){
     echo "--------------------------------------------------------------------------------------------------------------------"
 
     # Ask for confirmation
-    read -p "Do you want to proceed with the installation? (y/n): " confirm
+    read -r -p "Do you want to proceed with the installation? (y/n): " confirm
     confirm=${confirm:-$default_confirm}
     if [[ $confirm != "y" ]]; then
     echo "Installation aborted."
@@ -744,7 +735,9 @@ configureMISPForDB(){
 configureMySQL(){
     ## Add user + DB
     lxc exec $MYSQL_CONTAINER -- mysql -u root -e "CREATE DATABASE $MYSQL_DATABASE;"
-    lxc exec $MYSQL_CONTAINER -- mysql -u root -e "GRANT ALL PRIVILEGES ON $MYSQL_DATABASE.* TO '$MYSQL_USER'@'$MISP_HOST' IDENTIFIED BY '$MYSQL_PASSWORD';"
+    echo "mysql -u root -e CREATE DATABASE $MYSQL_DATABASE;"
+    lxc exec $MYSQL_CONTAINER -- mysql -u root -e "GRANT ALL PRIVILEGES ON $MYSQL_DATABASE.* TO '$MYSQL_USER'@'$MISP_CONTAINER.lxd' IDENTIFIED BY '$MYSQL_PASSWORD';"
+    echo "mysql -u root -e GRANT ALL PRIVILEGES ON $MYSQL_DATABASE.* TO '$MYSQL_USER'@'$MISP_CONTAINER.lxd' IDENTIFIED BY '$MYSQL_PASSWORD';"
 
     ## Configure remote access
     lxc exec $MYSQL_CONTAINER -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
