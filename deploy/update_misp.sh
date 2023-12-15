@@ -13,6 +13,8 @@ setVars(){
     MYSQL_IMAGE_NAME=$(generateName "mysql")
     REDIS_IMAGE_NAME=$(generateName "redis")
     MODULES_IMAGE_NAME=$(generateName "modules")
+
+    PATH_TO_MISP="/var/www/MISP/"
 }
 
 setDefaultArgs(){
@@ -104,7 +106,7 @@ usage(){
 
 nonInteractiveConfig(){
     ALL=false
-    VALID_ARGS=$(getopt -o c:n:a --long no-php-ini,misp-image:,current-misp:,new-misp:,all,update-mysql,mysql-image:,new-mysql:,update-redis,redis-image:,new-redis:,update-modules,modules-image:,new-modules:  -- "$@")
+    VALID_ARGS=$(getopt -o c:n:ap: --long passwd:,misp-image:,current-misp:,new-misp:,all,update-mysql,mysql-image:,new-mysql:,update-redis,redis-image:,new-redis:,update-modules,modules-image:,new-modules:  -- "$@")
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
@@ -112,9 +114,9 @@ nonInteractiveConfig(){
     eval set -- "$VALID_ARGS"
     while [ $# -gt 0 ]; do
         case "$1" in
-            --no-php-ini)
-                php_ini="n"
-                shift
+            -p | --passswd)
+                MYSQL_ROOT_PASSWORD=$2
+                shift 2
                 ;;
             --misp-image)
                 misp_img=$2
@@ -210,7 +212,7 @@ checkNamingConvention(){
 
 
 validateArgs(){
-    local mandatory=("CURRENT_MISP" "MISP_IMAGE")
+    local mandatory=("CURRENT_MISP" "MISP_IMAGE" "MYSQL_ROOT_PASSWORD")
     for arg in "${mandatory[@]}"; do
         if [ -z "${!arg}" ]; then  
             error "$arg is not set!" 
@@ -294,6 +296,10 @@ err() {
     exit "${code}"
 }
 
+errDB(){
+    lxc exec $CURRENT_MYSQL -- mysql -u root -p$MYSQL_ROOT_PASSWORD -e "RENAME USER '$MYSQL_USER'@'$NEW_MISP.lxd' TO '$MYSQL_USER'@'$CURRENT_MISP.lxd';"
+}
+
 interrupt() {
     warn "Script interrupted by user. Delete project and exit ..."
     reset
@@ -333,7 +339,7 @@ reset(){
 
 getOptionalContainer(){
     # MYSQL
-    CURRENT_MYSQL=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'host' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed "s/'.lxd'//g" | sed 's/[^a-zA-Z0-9]//g'")
+    CURRENT_MYSQL=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'host' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed "s/'.lxd'//g" | sed 's/[^a-zA-Z0-9-]//g'")
 
     # Redis 
     if $REDIS; then
@@ -349,6 +355,31 @@ getOptionalContainer(){
         CURRENT_MODULES=$(echo $modules_host | jq -r '.value')
     fi
 }
+
+cleanup(){
+    lxc image delete $MISP_IMAGE_NAME
+    rm -r "$TEMP"
+}
+
+createRedisSocket(){
+    local file_path="/etc/redis/redis.conf"
+    local lines_to_add="# create a unix domain socket to listen on\nunixsocket /var/run/redis/redis.sock\n# set permissions for the socket\nunixsocketperm 775"
+
+    lxc exec $NEW_MISP -- usermod -g www-data redis
+    lxc exec $NEW_MISP -- mkdir -p /var/run/redis/
+    lxc exec $NEW_MISP -- chown -R redis:www-data /var/run/redis
+    lxc exec $NEW_MISP -- cp "$file_path" "$file_path.bak"
+    lxc exec $NEW_MISP -- bash -c "echo -e \"$lines_to_add\" | cat - \"$file_path\" >tempfile && mv tempfile \"$file_path\""
+    lxc exec $NEW_MISP -- usermod -aG redis www-data
+    lxc exec $NEW_MISP -- service redis-server restart
+
+    # Modify php.ini
+    local php_ini_path="/etc/php/$PHP_VERSION/apache2/php.ini" 
+    local socket_path="/var/run/redis/redis.sock"
+    lxc exec $NEW_MISP -- sed -i "s|;session.save_path = \"/var/lib/php/sessions\"|session.save_path = \"$socket_path\"|; s|session.save_handler = files|session.save_handler = redis|" $php_ini_path
+    lxc exec $NEW_MISP -- sudo service apache2 restart
+}
+
 
 # main
 checkSoftwareDependencies
@@ -374,23 +405,6 @@ fi
 
 validateArgs
 
-# # check if image fingerprint already exists
-# hash=$(sha256sum $FILE | cut -c 1-64)
-# for image in $(lxc query "/1.0/images?recursion=1&project=${PROJECT_NAME}" | jq .[].fingerprint -r); do
-#     if [ "$image" = "$hash" ]; then
-#         error "Image $image already imported. Please check update file or delete current image."
-#         exit 1
-#     fi
-# done
-
-# # check if image alias already exists
-# for image in $(lxc image list --project="${PROJECT_NAME}" --format=json | jq -r '.[].aliases[].name'); do
-#     if [ "$image" = "$MISP_IMAGE" ]; then
-#         error "Image Name already exists."
-#         exit 1
-#     fi
-# done
-
 getOptionalContainer
 
 trap 'interrupt' INT
@@ -407,7 +421,7 @@ fi
 okay "Created temporary directory $TEMP."
 
 # Pull config
-echo "Extract config..."
+okay "Extract files from current MISP..."
 lxc file pull -r $CURRENT_MISP/var/www/MISP/app/files /tmp/$TEMP -v
 lxc file pull -r $CURRENT_MISP/var/www/MISP/app/tmp /tmp/$TEMP -v
 lxc file pull -r $CURRENT_MISP/var/www/MISP/app/Config /tmp/$TEMP -v
@@ -416,27 +430,34 @@ lxc file pull $CURRENT_MISP/var/www/MISP/app/webroot/gpg.asc /tmp/$TEMP/webroot/
 lxc file pull -r $CURRENT_MISP/var/www/MISP/app/View/Emails/html/Custom /tmp/$TEMP/View/Emails/html/ -v
 lxc file pull -r $CURRENT_MISP/var/www/MISP/app/View/Emails/text/Custom /tmp/$TEMP/View/Emails/text/ -v
 lxc file pull $CURRENT_MISP/var/www/MISP/app/Plugin/CakeResque/Config/config.php /tmp/$TEMP/Plugin/CakeResque/Config/ -v
-okay "pulled files"
+lxc file pull -r $CURRENT_MISP/var/www/MISP/.gnupg /tmp/$TEMP/ -v
 
+okay "Get additional config..."
 MYSQL_USER=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'login' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed 's/[^a-zA-Z0-9]//g'")
+PHP_VERSION=$(lxc exec "$CURRENT_MISP" -- bash -c "php -v | head -n 1 | awk '{print \$2}' | cut -d '.' -f 1,2")
+PHP_MEMORY_LIMIT=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "memory_limit" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
+PHP_MAX_EXECUTION_TIME=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "max_execution_time" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
+PHP_UPLOAD_MAX_FILESIZE=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "upload_max_filesize" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
+PHP_POST_MAX_SIZE=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "post_max_size" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
 
 # stop current MISP container
+okay "Stopping current MISP instance..."
 lxc stop $CURRENT_MISP
-okay "container stopped"
 
 
 # Import new image
+okay "Import image..."
 lxc image import $MISP_IMAGE --alias $MISP_IMAGE_NAME
-okay "Image imported"
+
 
 # Create new instance
+okay "Create new MISP instance..."
 profile=$(lxc config show $CURRENT_MISP | yq eval '.profiles | join(" ")' -)
 lxc launch $MISP_IMAGE_NAME $NEW_MISP --profile=$profile
-okay "New conatiner created"
 
 
 # Transfer files to new instance
-echo "push config to new instance ..."
+echo "Push fies to new MISP instance"
 lxc file push -r /tmp/$TEMP/files $NEW_MISP/var/www/MISP/app/ -v
 lxc file push -r /tmp/$TEMP/tmp $NEW_MISP/var/www/MISP/app/ -v
 lxc file push -r /tmp/$TEMP/Config $NEW_MISP/var/www/MISP/app/ -v
@@ -445,28 +466,50 @@ lxc file push /tmp/$TEMP/webroot/gpg.asc $NEW_MISP/var/www/MISP/app/webroot/ -v
 lxc file push -r /tmp/$TEMP/View/Emails/html/Custom $NEW_MISP/var/www/MISP/app/View/Emails/html/ -v
 lxc file push -r /tmp/$TEMP/View/Emails/text/Custom $NEW_MISP/var/www/MISP/app/View/Emails/text/ -v
 lxc file push /tmp/$TEMP/Plugin/CakeResque/Config/config.php $NEW_MISP/var/www/MISP/app/Plugin/CakeResque/Config/ -v
-okay "pushed files"
+lxc file push -r /tmp/$TEMP/.gnupg $NEW_MISP/var/www/MISP/ -v
 
 # Set permissions
-lxc exec $NEW_MISP -- sudo chown -R www-data:www-data /var/www/MISP/
-lxc exec $NEW_MISP -- sudo chmod -R 775 /var/www/MISP/
+lxc exec $NEW_MISP -- sudo chown -R www-data:www-data $PATH_TO_MISP
+lxc exec $NEW_MISP -- sudo chmod -R 750 $PATH_TO_MISP
+lxc exec $NEW_MISP -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/tmp
+lxc exec $NEW_MISP -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/files
+lxc exec $NEW_MISP -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/files/scripts/tmp
 
-# Configure MySQL DB to accept connection from new MISP host
-MYSQL_ROOT_PASSWORD="misp"
-
-# get mysql user
-# MYSQL_USER=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'login' /var/www/MISP/app/Config/database.php | awk -F\\\" '{print \$4}'")
-# echo $MYSQL_USER  
-
+# Change host address on MySQL
+trap 'errDB' ERR 
 lxc exec $CURRENT_MYSQL -- mysql -u root -p$MYSQL_ROOT_PASSWORD -e "RENAME USER '$MYSQL_USER'@'$CURRENT_MISP.lxd' TO '$MYSQL_USER'@'$NEW_MISP.lxd';"
 
-# Update
-lxc exec $NEW_MISP -- bash -c 'sudo -u "www-data" -H sh -c "/var/www/MISP/app/Console/cake Admin runUpdates"'
+# Apply php.ini config
+lxc exec $NEW_MISP -- bash -c "grep -q '^memory_limit' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^memory_limit.*/memory_limit = $PHP_MEMORY_LIMIT/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'memory_limit = $PHP_MEMORY_LIMIT' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+lxc exec $NEW_MISP -- bash -c "grep -q '^max_execution_time' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^max_execution_time.*/max_execution_time = $PHP_MAX_EXECUTION_TIME/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'max_execution_time = $PHP_MAX_EXECUTION_TIME' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+lxc exec $NEW_MISP -- bash -c "grep -q '^upload_max_filesize' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^upload_max_filesize.*/upload_max_filesize = $PHP_UPLOAD_MAX_FILESIZE/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'upload_max_filesize = $PHP_UPLOAD_MAX_FILESIZE' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+lxc exec $NEW_MISP -- bash -c "grep -q '^mempost_max_sizeory_limit' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^post_max_size.*/post_max_size = $PHP_POST_MAX_SIZE/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'post_max_size = $PHP_POST_MAX_SIZE' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+lxc exec $NEW_MISP -- sudo service apache2 restart
 
+createRedisSocket
+
+# Update
+lxc exec $NEW_MISP -- sudo -u www-data bash -c "$PATH_TO_MISP/app/Console/cake Admin runUpdates"
+
+# Start workers
+lxc exec $NEW_MISP --cwd=${PATH_TO_MISP}/app/Console/worker -- sudo -u "www-data" -H sh -c "bash start.sh"
 
 # Cleanup: Remove the temporary directory
-rm -r "$TEMP"
+cleanup
 
-# Add mysql config change 
-# update order? -> add update scripts for different containers
-# php ini
+# Print info
+misp_ip=$(lxc list $NEW_MISP --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
+echo "--------------------------------------------------------------------------------------------"
+echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
+echo "--------------------------------------------------------------------------------------------"
+echo -e "The following files were created and need either ${RED}protection${NC} or ${RED}removal${NC} (shred on the CLI)"
+echo -e "${RED}/home/misp/mysql.txt${NC}"
+echo "Contents:"
+lxc exec $NEW_MISP -- cat /home/misp/mysql.txt
+echo -e "${RED}/home/misp/MISP-authkey.txt${NC}"
+echo "Contents:"
+lxc exec $NEW_MISP -- cat /home/misp/MISP-authkey.txt
+echo "--------------------------------------------------------------------------------------------"
+echo "User: admin@admin.test"
+echo "Password: admin"
+echo "--------------------------------------------------------------------------------------------"
