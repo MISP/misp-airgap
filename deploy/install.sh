@@ -15,8 +15,17 @@ setVars(){
     CAKE="${PATH_TO_MISP}/app/Console/cake"
     MISP_BASEURL="${MISP_BASEURL:-""}"
     LXC_MISP="lxc exec ${MISP_CONTAINER}"
-    LXC_MISP="lxc exec ${MISP_CONTAINER}"
     REDIS_CONTAINER_PORT="6380"
+
+    INNODB_BUFFER_POOL_SIZE="2147483648"
+    INNODB_CHANGE_BUFFERING="none"
+    INNODB_IO_CAPACITY="1000"
+    INNODB_IO_CAPACITY_MAX="2000"
+    INNODB_LOG_FILE_SIZE="629145600"
+    INNODB_LOG_FILES_IN_GROUP="2"
+    INNODB_READ_IO_THREADS="16"
+    INNODB_STATS_PERISTENT="ON"
+    INNODB_WRITE_IO_THREADS="4"
 }
 
 setDefaultArgs(){
@@ -719,6 +728,22 @@ configureMISPForDB(){
     ${LXC_MISP} -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
 }
 
+editMySQLConf(){
+    local key=$1
+    local value=$2
+    local container=$3
+
+    lxc exec $container -- bash -c "\
+    if grep -q '^$key' /etc/mysql/mariadb.conf.d/50-server.cnf; then \
+        sed -i 's/^$key.*/$key = $value/' /etc/mysql/mariadb.conf.d/50-server.cnf; \
+    else \
+        awk -v $key='$key = $value' \
+        '/^\[mysqld\]/ {print; print $key; next} {print}' \
+        /etc/mysql/mariadb.conf.d/50-server.cnf > /tmp/php.ini.modified && \
+        mv /tmp/php.ini.modified /etc/mysql/mariadb.conf.d/50-server.cnf; \
+    fi"
+}
+
 configureMySQL(){
     ## Add user + DB
     lxc exec $MYSQL_CONTAINER -- mysql -u root -e "CREATE DATABASE $MYSQL_DATABASE;"
@@ -726,6 +751,17 @@ configureMySQL(){
 
     ## Configure remote access
     lxc exec $MYSQL_CONTAINER -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
+
+    editMySQLConf "innodb_write_io_threads" "$INNODB_WRITE_IO_THREADS" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_stats_persistent" "$INNODB_STATS_PERISTENT" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_read_io_threads" "$INNODB_READ_IO_THREADS" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_log_files_in_group" "$INNODB_LOG_FILES_IN_GROUP" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_log_file_size" "$INNODB_LOG_FILE_SIZE" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_io_capacity_max" "$INNODB_IO_CAPACITY_MAX" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_io_capacity" "$INNODB_IO_CAPACITY" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_change_buffering" "$INNODB_CHANGE_BUFFERING" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_buffer_pool_size" "$INNODB_BUFFER_POOL_SIZE" "$MYSQL_CONTAINER"
+
     lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mysql
 
     ## secure MySQL installation
@@ -977,8 +1013,8 @@ checkForDefault(){
     done
 }
 
-cmdConfig(){
-    VALID_ARGS=$(getopt -o ip --long interactive,production,project:,misp-image:,misp-name:,mysql-image:,mysql-name:,mysql-user:,mysql-pwd:,mysql-db:,mysql-root-pwd:,redis-image:,redis-name:,no-modules,modules-image:,modules-name:,app_partition:,db_partition:  -- "$@")
+nonInteractiveConfig(){
+    VALID_ARGS=$(getopt -o ph --long help,production,project:,misp-image:,misp-name:,mysql-image:,mysql-name:,mysql-user:,mysql-pwd:,mysql-db:,mysql-root-pwd:,redis-image:,redis-name:,no-modules,modules-image:,modules-name:,app_partition:,db_partition:  -- "$@")
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
@@ -986,9 +1022,8 @@ cmdConfig(){
     eval set -- "$VALID_ARGS"
     while [ $# -gt 0 ]; do
         case "$1" in
-            -i | --interactive)
-                INTERACTIVE=true
-                break
+            -h | --help)
+                usage
                 ;;
             -p | --production)
                 prod="y"
@@ -1144,6 +1179,17 @@ validateArgs(){
     fi
 }
 
+cleanup(){
+    # Remove imported images
+    images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$REDIS_IMAGE_NAME")
+    for image in "${images[@]}"; do
+        lxc image delete "$image"
+    done
+    if $MODULES; then
+        lxc image delete "$MODULES_IMAGE_NAME"
+    fi
+}
+
 # Main
 checkSoftwareDependencies
 setDefaultArgs
@@ -1156,11 +1202,10 @@ for arg in "$@"; do
     fi
 done
 
-# Set user config
 if [ "$INTERACTIVE" = true ]; then
     interactiveConfig
 else
-    cmdConfig "$@"
+    nonInteractiveConfig "$@"
 fi
 
 validateArgs
@@ -1198,7 +1243,6 @@ ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting MISP.live false --force
 
 # Start workers
 ${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh
-echo "${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh"
 
 info "7" "Create Keys"
 setupGnuPG
@@ -1223,9 +1267,10 @@ if $PROD; then
     warn "MISP runs in production mode!"
 fi
 
-misp_ip=$(lxc list $MISP_CONTAINER --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
+cleanup
 
 # Print info
+misp_ip=$(lxc list $MISP_CONTAINER --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
 echo "--------------------------------------------------------------------------------------------"
 echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
 echo "--------------------------------------------------------------------------------------------"
