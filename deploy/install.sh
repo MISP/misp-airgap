@@ -15,8 +15,43 @@ setVars(){
     CAKE="${PATH_TO_MISP}/app/Console/cake"
     MISP_BASEURL="${MISP_BASEURL:-""}"
     LXC_MISP="lxc exec ${MISP_CONTAINER}"
-    LXC_MISP="lxc exec ${MISP_CONTAINER}"
     REDIS_CONTAINER_PORT="6380"
+
+    INNODB_BUFFER_POOL_SIZE="2147483648"
+    INNODB_CHANGE_BUFFERING="none"
+    INNODB_IO_CAPACITY="1000"
+    INNODB_IO_CAPACITY_MAX="2000"
+    INNODB_LOG_FILE_SIZE="629145600"
+    INNODB_LOG_FILES_IN_GROUP="2"
+    INNODB_READ_IO_THREADS="16"
+    INNODB_STATS_PERISTENT="ON"
+    INNODB_WRITE_IO_THREADS="4"
+}
+
+setDefaultArgs(){
+    default_confirm="no"
+    default_prod="no"
+    default_misp_project=$(generateName "misp-project")
+
+    default_misp_img=""
+    default_misp_name=$(generateName "misp")
+
+    default_mysql_img=""
+    default_mysql_name=$(generateName "mysql")
+    default_mysql_user="misp"
+    default_mysql_pwd="misp"
+    default_mysql_db="misp"
+    default_mysql_root_pwd="misp"
+
+    default_redis_img=""
+    default_redis_name=$(generateName "redis")
+
+    default_modules="yes"
+    default_modules_img=""
+    default_modules_name=$(generateName "modules")
+
+    default_app_partition=""
+    default_db_partition=""
 }
 
 getPHPVersion(){
@@ -361,14 +396,14 @@ checkNamingConvention(){
     local pattern="^[a-zA-Z0-9-]+$"
 
     if ! [[ "$input" =~ $pattern ]]; then
-        error "Invalid Name. Please use only alphanumeric characters and hyphens."
+        error "Invalid Name $input. Please use only alphanumeric characters and hyphens."
         # exit 1
         return 1
     fi
     return 0
 }
 
-getIntallationConfig(){
+interactiveConfig(){
     # Installer output
     echo
     echo "################################################################################"
@@ -383,34 +418,9 @@ getIntallationConfig(){
     echo -e "#                                                                              #"
     echo "################################################################################"
     echo
-
-    # set default values
-    default_confirm="no"
-    default_prod="no"
-    default_misp_project=$(generateName "misp-project")
-
-    default_misp_img="../build/images/misp.tar.gz"
-    default_misp_name=$(generateName "misp")
-
-    # default_mysql="yes"
-    default_mysql_img="../build/images/mysql.tar.gz"
-    default_mysql_name=$(generateName "mysql")
-    default_mysql_user="misp"
-    default_mysql_pwd="misp"
-    default_mysql_db="misp"
-    default_mysql_root_pwd="misp"
-
-    # default_redis="yes"
-    default_redis_img="../build/images/redis.tar.gz"
-    default_redis_name=$(generateName "redis")
-
-    default_modules="yes"
-    default_modules_img="../build/images/modules.tar.gz"
-    default_modules_name=$(generateName "modules")
-
-    default_app_partition=""
-    default_db_partition=""
     
+    declare -A nameCheckArray
+
     # Ask for LXD project name
     while true; do 
         read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
@@ -441,13 +451,14 @@ getIntallationConfig(){
     while true; do 
         read -r -p "Name of the misp container (default: $default_misp_name): " misp_name
         MISP_CONTAINER=${misp_name:-$default_misp_name}
+        if [[ ${nameCheckArray[$MISP_CONTAINER]+_} ]]; then
+            error "Name '$MISP_CONTAINER' has already been used. Please choose a different name."
+            continue
+        fi
         if ! checkNamingConvention "$MISP_CONTAINER"; then
             continue
         fi
-        if checkRessourceExist "container" "$MISP_CONTAINER"; then
-            error "Container '$MISP_CONTAINER' already exists."
-            continue
-        fi
+        nameCheckArray[$MISP_CONTAINER]=1
         break
     done
 
@@ -467,13 +478,14 @@ getIntallationConfig(){
     while true; do 
         read -r -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
         MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
+        if [[ ${nameCheckArray[$MYSQL_CONTAINER]+_} ]]; then
+            error "Name '$MYSQL_CONTAINER' has already been used. Please choose a different name."
+            continue
+        fi
         if ! checkNamingConvention "$MYSQL_CONTAINER"; then
             continue
         fi
-        if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
-            error "Container '$MYSQL_CONTAINER' already exists."
-            continue
-        fi
+        nameCheckArray[$MYSQL_CONTAINER]=1
         break
     done
 
@@ -503,21 +515,22 @@ getIntallationConfig(){
     while true; do
         read -r -p "Name of the Redis container (default: $default_redis_name): " redis_name
         REDIS_CONTAINER=${redis_name:-$default_redis_name}
+        if [[ ${nameCheckArray[$REDIS_CONTAINER]+_} ]]; then
+            error "Name '$REDIS_CONTAINER' has already been used. Please choose a different name."
+            continue
+        fi
         if ! checkNamingConvention "$REDIS_CONTAINER"; then
             continue
         fi
-        if checkRessourceExist "container" "$REDIS_CONTAINER"; then
-            error "Container '$REDIS_CONTAINER' already exists."
-            continue
-        fi
+        nameCheckArray[$REDIS_CONTAINER]=1
         break
     done
 
     # Ask for MISP Modules installation
     read -r -p "Do you want to install MISP Modules (y/n, default: $default_modules): " modules
     modules=${modules:-$default_modules}
-    modules=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
-    if $modules; then
+    MODULES=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    if $MODULES; then
 
         # Ask for MISP Modules image
         while true; do
@@ -535,13 +548,14 @@ getIntallationConfig(){
         while true; do
             read -r -p "Name of the Modules container (default: $default_modules_name): " modules_name
             MODULES_CONTAINER=${modules_name:-$default_modules_name}
+            if [[ ${nameCheckArray[$MODULES_CONTAINER]+_} ]]; then
+                error "Name '$MODULES_CONTAINER' has already been used. Please choose a different name."
+                continue
+            fi
             if ! checkNamingConvention "$MODULES_CONTAINER"; then
                 continue
             fi
-            if checkRessourceExist "container" "$MODULES_CONTAINER"; then
-                error "Container '$MODULES_CONTAINER' already exists."
-                continue
-            fi
+            nameCheckArray[$MODULES_CONTAINER]=1
             break
         done
 
@@ -559,18 +573,7 @@ getIntallationConfig(){
     PROD=$(echo "$prod" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
 
     if $PROD; then
-        # Check if any password is set to default
-        declare -A defaults=(
-        ["MYSQL_PASSWORD"]="misp"
-        ["MYSQL_ROOT_PASSWORD"]="misp"
-        )
-
-        for key in "${!defaults[@]}"; do
-            if [ "${!key}" = "${defaults[$key]}" ]; then
-                error "The value of '$key' is using the default value. Please modify all passwords before running the script in production."
-                exit 1
-            fi
-        done
+        checkForDefault
     fi
 
     # Output values set by the user
@@ -581,8 +584,6 @@ getIntallationConfig(){
     echo -e "${BLUE}MISP:${NC}"
     echo -e "MISP_IMAGE: ${GREEN}$MISP_IMAGE${NC}"
     echo -e "MISP_CONTAINER: ${GREEN}$MISP_CONTAINER${NC}"
-    #echo -e "MYSQL: ${GREEN}$mysql${NC}"
-    # if $mysql; then
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}MySQL:${NC}"
     echo -e "MYSQL_IMAGE: ${GREEN}$MYSQL_IMAGE${NC}"
@@ -591,27 +592,21 @@ getIntallationConfig(){
     echo -e "MYSQL_USER: ${GREEN}$MYSQL_USER${NC}"
     echo -e "MYSQL_PASSWORD: ${GREEN}$MYSQL_PASSWORD${NC}"
     echo -e "MYSQL_ROOT_PASSWORD: ${GREEN}$MYSQL_ROOT_PASSWORD${NC}"
-    # fi
-    #echo -e "REDIS: ${GREEN}$redis${NC}"
-    # if $redis; then
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}Redis:${NC}"
     echo -e "REDIS_IMAGE: ${GREEN}$REDIS_IMAGE${NC}"
     echo -e "REDIS_CONTAINER: ${GREEN}$REDIS_CONTAINER${NC}"
-    # fi
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}MISP Modules:${NC}"
-    echo -e "MISP Modules: ${GREEN}$modules${NC}"
-    if $modules; then
+    echo -e "MISP Modules: ${GREEN}$MODULES${NC}"
+    if $MODULES; then
         echo -e "MODULES_IMAGE: ${GREEN}$MODULES_IMAGE${NC}"
         echo -e "MODULES_CONTAINER: ${GREEN}$MODULES_CONTAINER${NC}"
     fi
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}Storage:${NC}"
     echo -e "APP_PARTITION: ${GREEN}$APP_PARTITION${NC}"
-    # if $mysql || $redis; then
     echo -e "DB_PARTITION: ${GREEN}$DB_PARTITION${NC}"
-    # fi
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}Security:${NC}"
     echo -e "PROD: ${GREEN}$PROD${NC}\n"
@@ -621,8 +616,8 @@ getIntallationConfig(){
     read -r -p "Do you want to proceed with the installation? (y/n): " confirm
     confirm=${confirm:-$default_confirm}
     if [[ $confirm != "y" ]]; then
-    echo "Installation aborted."
-    exit 1
+        warn "Installation aborted."
+        exit 1
     fi
 
 }
@@ -651,7 +646,7 @@ setupLXD(){
     # Create Network
     NETWORK_NAME=$(generateName "net")
     # max len of 15 
-    NETWORK_NAME=${NETWORK_NAME:0:15}
+    NETWORK_NAME=${NETWORK_NAME:0:14}
     if checkRessourceExist "network" "$NETWORK_NAME"; then
         error "Network '$NETWORK_NAME' already exists."
     fi
@@ -698,7 +693,7 @@ importImages(){
     fi
     lxc image import "$REDIS_IMAGE" --alias "$REDIS_IMAGE_NAME"
 
-    if $modules; then
+    if $MODULES; then
         MODULES_IMAGE_NAME=$(generateName "modules")
         if checkRessourceExist "image" "$MODULES_IMAGE_NAME"; then
             error "Image '$MODULES_IMAGE_NAME' already exists."
@@ -713,7 +708,7 @@ launchContainers(){
     lxc launch $MISP_IMAGE_NAME $MISP_CONTAINER --profile=$APP_PROFILE 
     lxc launch $MYSQL_IMAGE_NAME $MYSQL_CONTAINER --profile=$DB_PROFILE
     lxc launch $REDIS_IMAGE_NAME $REDIS_CONTAINER --profile=$DB_PROFILE 
-    if $modules; then
+    if $MODULES; then
         lxc launch $MODULES_IMAGE_NAME $MODULES_CONTAINER --profile=$APP_PROFILE
     fi
 }
@@ -731,6 +726,22 @@ configureMISPForDB(){
     ${LXC_MISP} -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
 }
 
+editMySQLConf(){
+    local key=$1
+    local value=$2
+    local container=$3
+
+    lxc exec $container -- bash -c "\
+    if grep -q '^$key' /etc/mysql/mariadb.conf.d/50-server.cnf; then \
+        sed -i 's/^$key.*/$key = $value/' /etc/mysql/mariadb.conf.d/50-server.cnf; \
+    else \
+        awk -v $key='$key = $value' \
+        '/^\[mysqld\]/ {print; print $key; next} {print}' \
+        /etc/mysql/mariadb.conf.d/50-server.cnf > /tmp/php.ini.modified && \
+        mv /tmp/php.ini.modified /etc/mysql/mariadb.conf.d/50-server.cnf; \
+    fi"
+}
+
 configureMySQL(){
     ## Add user + DB
     lxc exec $MYSQL_CONTAINER -- mysql -u root -e "CREATE DATABASE $MYSQL_DATABASE;"
@@ -738,6 +749,17 @@ configureMySQL(){
 
     ## Configure remote access
     lxc exec $MYSQL_CONTAINER -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
+
+    editMySQLConf "innodb_write_io_threads" "$INNODB_WRITE_IO_THREADS" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_stats_persistent" "$INNODB_STATS_PERISTENT" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_read_io_threads" "$INNODB_READ_IO_THREADS" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_log_files_in_group" "$INNODB_LOG_FILES_IN_GROUP" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_log_file_size" "$INNODB_LOG_FILE_SIZE" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_io_capacity_max" "$INNODB_IO_CAPACITY_MAX" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_io_capacity" "$INNODB_IO_CAPACITY" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_change_buffering" "$INNODB_CHANGE_BUFFERING" "$MYSQL_CONTAINER"
+    editMySQLConf "innodb_buffer_pool_size" "$INNODB_BUFFER_POOL_SIZE" "$MYSQL_CONTAINER"
+
     lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mysql
 
     ## secure MySQL installation
@@ -969,9 +991,253 @@ interrupt() {
     exit 130
 }
 
+
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  -i, --interactive               Activates an interactive installation process."
+    echo "  -p, --production                Set the MISP application to run in production mode."
+    echo "  --project <project_name>        Specify the name of the LXD project."
+    echo "  --misp-image <image_file>       Specify the MISP instance image file."
+    echo "  --misp-name <container_name>    Specify the MISP container name."
+    echo "  --mysql-image <image_file>      Specify the MariaDB instance image file."
+    echo "  --mysql-name <container_name>   Specify the MariaDB container name."
+    echo "  --mysql-db <database_name>      Specify the MISP database name."
+    echo "  --mysql-user <user_name>        Specify the MariaDB user name."
+    echo "  --mysql-pwd <password>          Specify the MariaDB user password."
+    echo "  --mysql-root-pwd <password>     Specify the MariaDB root password."
+    echo "  --redis-image <image_file>      Specify the Redis instance image file."
+    echo "  --redis-name <container_name>   Specify the Redis container name."
+    echo "  --no-modules                    Disable the setup of MISP Modules."
+    echo "  --modules-image <image_file>    Specify the MISP Modules image file."
+    echo "  --modules-name <container_name> Specify the MISP Modules container name."
+    echo "  --app-partition <partition>     Specify the MISP container partition."
+    echo "  --db-partition <partition>      Specify the database container partition."
+    echo
+    echo "Examples:"
+    echo "  $0 --interactive"
+    echo "  $0 --production --project my_project --mysql-user admin --mysql-pwd securepassword"
+    echo
+    echo "Note:"
+    echo "  - This script sets up and configures an LXD project environment for MISP."
+    echo "  - Use only alphanumeric characters and hyphens for container names and partitions."
+    exit 1
+}
+
+checkForDefault(){
+    declare -A defaults=(
+    ["MYSQL_PASSWORD"]=$default_mysql_pwd
+    ["MYSQL_ROOT_PASSWORD"]=$default_mysql_root_pwd
+    )
+
+    for key in "${!defaults[@]}"; do
+        if [ "${!key}" = "${defaults[$key]}" ]; then
+            error "The value of '$key' is using the default value. Please modify all passwords before running the script in production."
+            exit 1
+        fi
+    done
+}
+
+nonInteractiveConfig(){
+    VALID_ARGS=$(getopt -o ph --long help,production,project:,misp-image:,misp-name:,mysql-image:,mysql-name:,mysql-user:,mysql-pwd:,mysql-db:,mysql-root-pwd:,redis-image:,redis-name:,no-modules,modules-image:,modules-name:,app_partition:,db_partition:  -- "$@")
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+
+    eval set -- "$VALID_ARGS"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h | --help)
+                usage
+                ;;
+            -p | --production)
+                prod="y"
+                shift
+                ;;
+            --project)
+                misp_project=$2
+                shift 2
+                ;;
+            --misp-image)
+                misp_img=$2
+                shift 2
+                ;;
+            --misp-name)
+                misp_name=$2
+                shift 2
+                ;;
+            --mysql-image)
+                mysql_img=$2
+                shift 2
+                ;;
+            --mysql-name)
+                mysql_name=$2
+                shift 2
+                ;;
+            --mysql-user)
+                mysql_user=$2
+                shift 2
+                ;;
+            --mysql-pwd)
+                mysql_pwd=$2
+                shift 2
+                ;;
+            --mysql-db)
+                mysql_db=$2
+                shift 2
+                ;;
+            --mysql-root-pwd)
+                mysql_root_pwd=$2
+                shift 2
+                ;;
+            --redis-image)
+                redis_img=$2
+                shift 2
+                ;;
+            --redis-name)
+                redis_name=$2
+                shift 2
+                ;;
+            --no-modules)
+                modules="n"
+                shift
+                ;;
+            --modules-image)
+                modules_img=$2
+                shift 2
+                ;;
+            --modules-name)
+                modules_name=$2
+                shift 2
+                ;;
+            --app-partition)
+                app_partition=$2
+                shift 2
+                ;;
+            --db-partition)
+                db_partition=$2
+                shift 2
+                ;;  
+            *)  
+                break 
+                ;;
+        esac
+    done
+
+    # Set global values
+    PROJECT_NAME=${misp_project:-$default_misp_project}
+    MISP_IMAGE=${misp_img:-$default_misp_img}
+    MISP_CONTAINER=${misp_name:-$default_misp_name}
+    MYSQL_IMAGE=${mysql_img:-$default_mysql_img}
+    MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
+    MYSQL_USER=${mysql_user:-$default_mysql_user}
+    MYSQL_PASSWORD=${mysql_pwd:-$default_mysql_pwd}
+    MYSQL_DATABASE=${mysql_db:-$default_mysql_db}
+    MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
+    REDIS_IMAGE=${redis_img:-$default_redis_img}
+    REDIS_CONTAINER=${redis_name:-$default_redis_name}
+    modules=${modules:-$default_modules}
+    MODULES=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    MODULES_IMAGE=${modules_img:-$default_modules_img}
+    MODULES_CONTAINER=${modules_name:-$default_modules_name}
+    APP_PARTITION=${app_partition:-$default_app_partition}
+    DB_PARTITION=${db_partition:-$default_db_partition}
+    prod=${prod:-$default_prod}
+    PROD=$(echo "$prod" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+}
+
+validateArgs(){
+    # Check Names
+    local names=("$PROJECT_NAME" "$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+    for i in "${names[@]}"; do
+        if ! checkNamingConvention "$i"; then
+            exit 1
+        fi
+    done
+
+    if $MODULES && ! checkNamingConvention "$MODULES_CONTAINER"; then
+        exit 1
+    fi
+
+    # Check for Project
+    if checkRessourceExist "project" "$PROJECT_NAME"; then
+        error "Project '$PROJECT_NAME' already exists."
+        exit 1
+    fi
+
+    # Check Container Names
+    local containers=("$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+
+    declare -A name_counts
+    for name in "${containers[@]}"; do
+    ((name_counts["$name"]++))
+    done
+
+    if $MODULES;then
+        ((name_counts["$MODULES_CONTAINER"]++))
+    fi
+
+    for name in "${!name_counts[@]}"; do
+    if ((name_counts["$name"] >= 2)); then
+        error "At least two container have the same name: $name"
+        exit 1
+    fi
+    done
+
+    # Check for files
+    local files=("$MISP_IMAGE" "$MYSQL_IMAGE" "$REDIS_IMAGE")
+    for i in "${files[@]}"; do
+        if [ ! -f "$i" ]; then
+            error "The specified file $i does not exists"
+            exit 1
+        fi
+    done
+
+    if $MODULES && [ ! -f "$MODULES_IMAGE" ];then
+        error "The specified file $MODULES_IMAGE does not exists"
+        exit 1       
+    fi 
+
+    # Check for production mode
+    if $PROD; then
+        checkForDefault
+    fi
+}
+
+cleanup(){
+    # Remove imported images
+    images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$REDIS_IMAGE_NAME")
+    for image in "${images[@]}"; do
+        lxc image delete "$image"
+    done
+    if $MODULES; then
+        lxc image delete "$MODULES_IMAGE_NAME"
+    fi
+}
+
 # Main
+if [ -z "$1" ]; then
+    usage
+fi
 checkSoftwareDependencies
-getIntallationConfig
+setDefaultArgs
+# Check for interactive install
+INTERACTIVE=false
+for arg in "$@"; do
+    if [[ $arg == "-i" ]] || [[ $arg == "--interactive" ]]; then
+        INTERACTIVE=true
+        break
+    fi
+done
+
+if [ "$INTERACTIVE" = true ]; then
+    interactiveConfig
+else
+    nonInteractiveConfig "$@"
+fi
+
+validateArgs
 setVars
 trap 'interrupt' INT
 trap 'err ${LINENO}' ERR
@@ -1005,8 +1271,13 @@ initializeDB
 ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting MISP.live false --force
 
 # Start workers
-${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh
-echo "${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh"
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque stop --all
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue default
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue prio
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue cache
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue email
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue update
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque startscheduler --interval 5
 
 info "7" "Create Keys"
 setupGnuPG
@@ -1018,7 +1289,7 @@ lxc exec "$MISP_CONTAINER" -- sh -c "echo 'Authkey: $AUTH_KEY' > /home/misp/MISP
 
 info "8" "Set MISP Settings"
 coreCAKE
-if $modules; then
+if $MODULES; then
     configureMISPModules
 fi
 
@@ -1031,9 +1302,10 @@ if $PROD; then
     warn "MISP runs in production mode!"
 fi
 
-misp_ip=$(lxc list $MISP_CONTAINER --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
+cleanup
 
 # Print info
+misp_ip=$(lxc list $MISP_CONTAINER --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
 echo "--------------------------------------------------------------------------------------------"
 echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
 echo "--------------------------------------------------------------------------------------------"
