@@ -20,6 +20,7 @@ setVars(){
 }
 
 setDefaultArgs(){
+    default_misp="no"
     default_misp_img=""
     default_current_misp=""
     default_new_misp=$(generateName "misp")
@@ -253,7 +254,7 @@ validateArgs(){
     local mandatory=("CURRENT_MISP")
     local image=()
 
-    # Check current container
+    # Check images and if args set
     if ! checkResourceExists "container" $CURRENT_MISP; then
         error "Container $CURRENT_MISP could not be found!"
         exit 1
@@ -288,6 +289,17 @@ validateArgs(){
         fi
     done
 
+    # Check if update is set
+    if ! $MISP && ! $MYSQL && ! $REDIS && ! $MODULES; then
+        error "No update set for any component. Cancel update ..."
+        exit 1
+    fi
+
+    # Check if components are running
+    if ! checkLXDContainerRunning "$CURRENT_MISP"; then
+        error "Container $CURRENT_MISP is not running!"
+    fi
+
     validateNewContainerSetup "$NEW_MISP" $MISP "MISP" "MISP_IMAGE"
     validateNewContainerSetup "$NEW_MYSQL" $MYSQL "MySQL" "MYSQL_IMAGE"
     validateNewContainerSetup "$NEW_REDIS" $REDIS "Redis" "REDIS_IMAGE"
@@ -295,7 +307,10 @@ validateArgs(){
 
     # Check for duplicate names
     declare -A name_counts
-    ((name_counts["$NEW_MISP"]++))
+
+    if $MISP; then
+        ((name_counts["$NEW_MISP"]++))
+    fi
     if $MYSQL;then
         ((name_counts["$NEW_MYSQL"]++))
     fi
@@ -312,7 +327,16 @@ validateArgs(){
             exit 1
         fi
     done
+}
 
+checkLXDContainerRunning() {
+    local container_name=$1
+    local state=$(lxc list "^${container_name}$" --format csv -c s)
+
+    if [ "$state" == "RUNNING" ]; then
+        return 0
+    fi
+    return 1
 }
 
 validateNewContainerSetup() {
@@ -415,10 +439,26 @@ reset(){
 
 getAdditionalContainer(){
     CURRENT_MYSQL=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'host' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed "s/'.lxd'//g" | sed 's/[^a-zA-Z0-9-]//g'")
- 
+
+    if ! checkLXDContainerRunning "$CURRENT_MYSQL"; then
+        error "Container $CURRENT_MYSQL is not running!"
+    fi
+
+    # Check root pwd
+    if $MISP || $MYSQL; then
+        if ! lxc exec $CURRENT_MYSQL -- mysql -u "root" -p"$MYSQL_ROOT_PASSWORD" -e "quit" > /dev/null 2>&1; then
+            error "MySQL root pwd is invalid!"
+            exit 1
+        fi
+    fi
+
     local redis_host
     redis_host=$(lxc exec "$CURRENT_MISP" -- bash -c 'sudo -u "www-data" -H sh -c "/var/www/MISP/app/Console/cake Admin getSetting MISP.redis_host"')
     CURRENT_REDIS=$(echo $redis_host | jq -r '.value' | sed "s/\\.lxd$//")
+
+    if ! checkLXDContainerRunning "$CURRENT_REDIS"; then
+        error "Container $CURRENT_REDIS is not running!"
+    fi
 
 
     CUSTOM_MODULES=true
@@ -427,6 +467,11 @@ getAdditionalContainer(){
     CURRENT_MODULES=$(echo $modules_host | jq -r '.value' | sed "s/\\.lxd$//")
     if [ "$CURRENT_MODULES" == "http://127.0.0.1" ]; then
         CUSTOM_MODULES=false
+    fi
+    if $CUSTOM_MODULES; then
+        if ! checkLXDContainerRunning "$CURRENT_MODULES"; then
+            error "Container $CURRENT_MODULES is not running!"
+        fi
     fi
 }
 
@@ -458,7 +503,6 @@ createRedisSocket(){
 updateMISP(){
     trap 'err ${LINENO}' ERR
     okay "Update MISP ..."
-    # Create a temporary directory
     TEMP=$(mktemp -d)
 
     # Check if the directory was created successfully
@@ -539,11 +583,9 @@ updateMISP(){
     # Start workers
     lxc exec $NEW_MISP --cwd=${PATH_TO_MISP}/app/Console/worker -- sudo -u "www-data" -H sh -c "bash start.sh"
 
-    # stop current MISP container
     okay "Stopping current MISP instance..."
     lxc stop $CURRENT_MISP
 
-    # Cleanup: Remove the temporary directory
     cleanupMISP
 }
 
@@ -700,6 +742,242 @@ updateModules(){
     cleanupModules
 }
 
+interactiveConfig(){
+    # Installer output
+    echo
+    echo "################################################################################"
+    echo -e "# Welcome to the ${BLUE}MISP-airgap${NC} Update Script                                     #"
+    echo "#------------------------------------------------------------------------------#"
+    echo -e "# This update script will guide you through the process of updating your       #"
+    echo -e "# ${BLUE}MISP${NC} installation within an LXD environment.                                 #"
+    echo -e "#                                                                              #"
+    echo -e "# ${VIOLET}Attention:${NC}                                                                   #"
+    echo -e "# ${VIOLET}It is recommended to back up your current configuration and data before      ${NC}#"
+    echo -e "# ${VIOLET}proceeding with the update to prevent any potential data loss.              ${NC} #"
+    echo -e "#                                                                              #"
+    echo -e "# ${VIOLET}The update process will try to retain your settings, but it is advisable to ${NC} #"
+    echo -e "# ${VIOLET}review them post-update to ensure everything is configured as expected.${NC}      #"
+    echo -e "#                                                                              #"
+    echo "################################################################################"
+    echo
+
+    declare -A nameCheckArray
+
+    # Ask for current MISP
+    while true; do 
+        read -r -p "Name of the current misp container: " current_misp
+        CURRENT_MISP=${current_misp:-$default_current_misp}
+        if ! checkResourceExists "container" "$CURRENT_MISP"; then
+            error "Container '$CURRENT_MISP' does not exist."
+            continue
+        fi
+        break
+    done
+
+    # Ask for MISP update
+    read -r -p "Do you want to update MISP (y/n, default: $default_misp): " misp
+    misp=${misp:-$default_misp}
+    MISP=$(echo "$misp" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    if $MISP; then
+
+        # Ask for MISP image
+        while true; do
+            read -r -e -p "What is the path to the MISP image (default: $default_misp_img): " misp_img
+            misp_img=${misp_img:-$default_misp_img}
+            if [ ! -f "$misp_img" ]; then
+                error "The specified file does not exist."
+                continue
+            fi
+            MISP_IMAGE=$misp_img
+            break
+        done
+
+        # Ask for new MISP container name
+        while true; do
+            read -r -p "Name of the new MISP container (default: $default_new_misp): " new_misp
+            NEW_MISP=${new_misp:-$default_new_misp}
+            if [[ ${nameCheckArray[$NEW_MISP]+_} ]]; then
+                error "Name '$NEW_MISP' has already been used. Please choose a different name."
+                continue
+            fi
+            if checkResourceExists "container" "$NEW_MISP"; then
+                error "Container '$NEW_MISP' already exists."
+                continue
+            fi
+            if ! checkNamingConvention "$NEW_MISP"; then
+                continue
+            fi
+            nameCheckArray[$NEW_MISP]=1
+            break
+        done
+
+        while true; do
+            read -r -p "Please enter your MySQL root pwd: " root_pwd
+            MYSQL_ROOT_PASSWORD=${root_pwd}
+            # Add check?
+            break
+        done
+    fi
+
+    # Ask for MySQL update
+    read -r -p "Do you want to update MySQL (y/n, default: $default_mysql): " mysql
+    mysql=${mysql:-$default_mysql}
+    MYSQL=$(echo "$mysql" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    if $MYSQL; then
+
+        # Ask for MySQL image
+        while true; do
+            read -r -e -p "What is the path to the MySQL image (default: $default_mysql_img): " mysql_img
+            mysql_img=${mysql_img:-$default_mysql_img}
+            if [ ! -f "$mysql_img" ]; then
+                error "The specified file does not exist."
+                continue
+            fi
+            MYSQL_IMAGE=$mysql_img
+            break
+        done
+
+        # Ask for new MySQL container name
+        while true; do
+            read -r -p "Name of the new MySQL container (default: $default_new_mysql): " new_mysql
+            NEW_MYSQL=${new_mysql:-$default_new_mysql}
+            if [[ ${nameCheckArray[$NEW_MYSQL]+_} ]]; then
+                error "Name '$NEW_MYSQL' has already been used. Please choose a different name."
+                continue
+            fi
+            if checkResourceExists "container" "$NEW_MYSQL"; then
+                error "Container '$NEW_MYSQL' already exists."
+                continue
+            fi
+            if ! checkNamingConvention "$NEW_MYSQL"; then
+                continue
+            fi
+            nameCheckArray[$NEW_MYSQL]=1
+            break
+        done
+
+        if ! $MISP; then
+            while true; do
+                read -r -p "Please enter your MySQL root pwd: " root_pwd
+                MYSQL_ROOT_PASSWORD=${root_pwd}
+                # Add check?
+                break
+            done
+        fi
+    fi
+
+    read -r -p "Do you want to update Redis (y/n, default: $default_redis): " redis
+    redis=${redis:-$default_redis}
+    REDIS=$(echo "$redis" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    if $REDIS; then
+
+        # Ask for Redis image
+        while true; do
+            read -r -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
+            redis_img=${redis_img:-$default_redis_img}
+            if [ ! -f "$redis_img" ]; then
+                error "The specified file does not exist."
+                continue
+            fi
+            REDIS_IMAGE=$redis_img
+            break
+        done
+
+        # Ask for new Redis container name
+        while true; do
+            read -r -p "Name of the new Redis container (default: $default_new_redis): " new_redis
+            NEW_REDIS=${new_redis:-$default_new_redis}
+            if [[ ${nameCheckArray[$NEW_REDIS]+_} ]]; then
+                error "Name '$NEW_REDIS' has already been used. Please choose a different name."
+                continue
+            fi
+            if checkResourceExists "container" "$NEW_REDIS"; then
+                error "Container '$NEW_REDIS' already exists."
+                continue
+            fi
+            if ! checkNamingConvention "$NEW_REDIS"; then
+                continue
+            fi
+            nameCheckArray[$NEW_REDIS]=1
+            break
+        done
+    fi
+
+    read -r -p "Do you want to update Modules (y/n, default: $default_modules): " modules
+    modules=${modules:-$default_modules}
+    MODULES=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    if $MODULES; then
+        # Ask for Modules image
+        while true; do
+            read -r -e -p "What is the path to the Modules image (default: $default_modules_img): " modules_img
+            modules_img=${modules_img:-$default_modules_img}
+            if [ ! -f "$modules_img" ]; then
+                error "The specified file does not exist."
+                continue
+            fi
+            MODULES_IMAGE=$modules_img
+            break
+        done
+
+        # Ask for new Modules container name
+        while true; do
+            read -r -p "Name of the new Modules container (default: $default_new_modules): " new_modules
+            NEW_MODULES=${new_modules:-$default_new_modules}
+            if [[ ${nameCheckArray[$NEW_MODULES]+_} ]]; then
+                error "Name '$NEW_MODULES' has already been used. Please choose a different name."
+                continue
+            fi
+            if checkResourceExists "container" "$NEW_MODULES"; then
+                error "Container '$NEW_MODULES' already exists."
+                continue
+            fi
+            if ! checkNamingConvention "$NEW_MODULES"; then
+                continue
+            fi
+            nameCheckArray[$NEW_MODULES]=1
+            break
+        done
+    fi
+
+    # Output values set by the user
+    echo -e "\nValues set:"
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "Current MISP Container: ${GREEN}$CURRENT_MISP${NC}"
+    echo -e "Update MISP: ${GREEN}$MISP${NC}"
+    if $MISP; then
+        echo -e "New MISP Image Path: ${GREEN}$MISP_IMAGE${NC}"
+        echo -e "New MISP Container Name: ${GREEN}$NEW_MISP${NC}"
+        echo -e "MySQL Root Password: ${GREEN}$MYSQL_ROOT_PASSWORD${NC}"
+    fi
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "Update MySQL: ${GREEN}$MYSQL${NC}"
+    if $MYSQL; then
+        echo -e "New MySQL Image Path: ${GREEN}$MYSQL_IMAGE${NC}"
+        echo -e "New MySQL Container Name: ${GREEN}$NEW_MYSQL${NC}"
+        echo -e "MySQL Root Password: ${GREEN}$MYSQL_ROOT_PASSWORD${NC}"
+    fi
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "Update Redis: ${GREEN}$REDIS${NC}"
+    if $REDIS; then
+        echo -e "New Redis Image Path: ${GREEN}$REDIS_IMAGE${NC}"
+        echo -e "New Redis Container Name: ${GREEN}$NEW_REDIS${NC}"
+    fi
+    echo "--------------------------------------------------------------------------------------------------------------------"
+    echo -e "Update Modules: ${GREEN}$MODULES${NC}"
+    if $MODULES; then
+        echo -e "New Modules Image Path: ${GREEN}$MODULES_IMAGE${NC}"
+        echo -e "New Modules Container Name: ${GREEN}$NEW_MODULES${NC}"
+    fi
+    echo "--------------------------------------------------------------------------------------------------------------------"
+
+    # Ask for confirmation
+    read -r -p "Do you want to proceed with the installation? (y/n): " confirm
+    confirm=${confirm:-$default_confirm}
+    if [[ $confirm != "y" ]]; then
+        warn "Installation aborted."
+        exit 1
+    fi
+}
 
 # main
 checkSoftwareDependencies
@@ -716,9 +994,7 @@ for arg in "$@"; do
 done
 
 if [ "$INTERACTIVE" = true ]; then
-    echo "TODO"
-    exit 1
-    #interactiveConfig
+    interactiveConfig
 else
     nonInteractiveConfig "$@"
 fi
@@ -765,15 +1041,4 @@ fi
 misp_ip=$(lxc list $CURRENT_MISP --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
 echo "--------------------------------------------------------------------------------------------"
 echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
-echo "--------------------------------------------------------------------------------------------"
-echo -e "The following files were created and need either ${RED}protection${NC} or ${RED}removal${NC} (shred on the CLI)"
-echo -e "${RED}/home/misp/mysql.txt${NC}"
-echo "Contents:"
-lxc exec $CURRENT_MISP -- cat /home/misp/mysql.txt
-echo -e "${RED}/home/misp/MISP-authkey.txt${NC}"
-echo "Contents:"
-lxc exec $CURRENT_MISP -- cat /home/misp/MISP-authkey.txt
-echo "--------------------------------------------------------------------------------------------"
-echo "User: admin@admin.test"
-echo "Password: admin"
 echo "--------------------------------------------------------------------------------------------"
