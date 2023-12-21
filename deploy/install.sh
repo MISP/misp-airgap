@@ -419,6 +419,8 @@ interactiveConfig(){
     echo "################################################################################"
     echo
     
+    declare -A nameCheckArray
+
     # Ask for LXD project name
     while true; do 
         read -r -p "Name of the misp project (default: $default_misp_project): " misp_project
@@ -449,13 +451,14 @@ interactiveConfig(){
     while true; do 
         read -r -p "Name of the misp container (default: $default_misp_name): " misp_name
         MISP_CONTAINER=${misp_name:-$default_misp_name}
+        if [[ ${nameCheckArray[$MISP_CONTAINER]+_} ]]; then
+            error "Name '$MISP_CONTAINER' has already been used. Please choose a different name."
+            continue
+        fi
         if ! checkNamingConvention "$MISP_CONTAINER"; then
             continue
         fi
-        if checkRessourceExist "container" "$MISP_CONTAINER"; then
-            error "Container '$MISP_CONTAINER' already exists."
-            continue
-        fi
+        nameCheckArray[$MISP_CONTAINER]=1
         break
     done
 
@@ -475,13 +478,14 @@ interactiveConfig(){
     while true; do 
         read -r -p "Name of the MySQL container (default: $default_mysql_name): " mysql_name
         MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
+        if [[ ${nameCheckArray[$MYSQL_CONTAINER]+_} ]]; then
+            error "Name '$MYSQL_CONTAINER' has already been used. Please choose a different name."
+            continue
+        fi
         if ! checkNamingConvention "$MYSQL_CONTAINER"; then
             continue
         fi
-        if checkRessourceExist "container" "$MYSQL_CONTAINER"; then
-            error "Container '$MYSQL_CONTAINER' already exists."
-            continue
-        fi
+        nameCheckArray[$MYSQL_CONTAINER]=1
         break
     done
 
@@ -511,13 +515,14 @@ interactiveConfig(){
     while true; do
         read -r -p "Name of the Redis container (default: $default_redis_name): " redis_name
         REDIS_CONTAINER=${redis_name:-$default_redis_name}
+        if [[ ${nameCheckArray[$REDIS_CONTAINER]+_} ]]; then
+            error "Name '$REDIS_CONTAINER' has already been used. Please choose a different name."
+            continue
+        fi
         if ! checkNamingConvention "$REDIS_CONTAINER"; then
             continue
         fi
-        if checkRessourceExist "container" "$REDIS_CONTAINER"; then
-            error "Container '$REDIS_CONTAINER' already exists."
-            continue
-        fi
+        nameCheckArray[$REDIS_CONTAINER]=1
         break
     done
 
@@ -543,13 +548,14 @@ interactiveConfig(){
         while true; do
             read -r -p "Name of the Modules container (default: $default_modules_name): " modules_name
             MODULES_CONTAINER=${modules_name:-$default_modules_name}
+            if [[ ${nameCheckArray[$MODULES_CONTAINER]+_} ]]; then
+                error "Name '$MODULES_CONTAINER' has already been used. Please choose a different name."
+                continue
+            fi
             if ! checkNamingConvention "$MODULES_CONTAINER"; then
                 continue
             fi
-            if checkRessourceExist "container" "$MODULES_CONTAINER"; then
-                error "Container '$MODULES_CONTAINER' already exists."
-                continue
-            fi
+            nameCheckArray[$MODULES_CONTAINER]=1
             break
         done
 
