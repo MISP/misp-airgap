@@ -33,21 +33,21 @@ setDefaultArgs(){
     default_prod="no"
     default_misp_project=$(generateName "misp-project")
 
-    default_misp_img="../build/images/misp.tar.gz"
+    default_misp_img=""
     default_misp_name=$(generateName "misp")
 
-    default_mysql_img="../build/images/mysql.tar.gz"
+    default_mysql_img=""
     default_mysql_name=$(generateName "mysql")
     default_mysql_user="misp"
     default_mysql_pwd="misp"
     default_mysql_db="misp"
     default_mysql_root_pwd="misp"
 
-    default_redis_img="../build/images/redis.tar.gz"
+    default_redis_img=""
     default_redis_name=$(generateName "redis")
 
     default_modules="yes"
-    default_modules_img="../build/images/modules.tar.gz"
+    default_modules_img=""
     default_modules_name=$(generateName "modules")
 
     default_app_partition=""
@@ -584,8 +584,6 @@ interactiveConfig(){
     echo -e "${BLUE}MISP:${NC}"
     echo -e "MISP_IMAGE: ${GREEN}$MISP_IMAGE${NC}"
     echo -e "MISP_CONTAINER: ${GREEN}$MISP_CONTAINER${NC}"
-    #echo -e "MYSQL: ${GREEN}$mysql${NC}"
-    # if $mysql; then
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}MySQL:${NC}"
     echo -e "MYSQL_IMAGE: ${GREEN}$MYSQL_IMAGE${NC}"
@@ -594,14 +592,10 @@ interactiveConfig(){
     echo -e "MYSQL_USER: ${GREEN}$MYSQL_USER${NC}"
     echo -e "MYSQL_PASSWORD: ${GREEN}$MYSQL_PASSWORD${NC}"
     echo -e "MYSQL_ROOT_PASSWORD: ${GREEN}$MYSQL_ROOT_PASSWORD${NC}"
-    # fi
-    #echo -e "REDIS: ${GREEN}$redis${NC}"
-    # if $redis; then
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}Redis:${NC}"
     echo -e "REDIS_IMAGE: ${GREEN}$REDIS_IMAGE${NC}"
     echo -e "REDIS_CONTAINER: ${GREEN}$REDIS_CONTAINER${NC}"
-    # fi
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}MISP Modules:${NC}"
     echo -e "MISP Modules: ${GREEN}$MODULES${NC}"
@@ -612,9 +606,7 @@ interactiveConfig(){
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}Storage:${NC}"
     echo -e "APP_PARTITION: ${GREEN}$APP_PARTITION${NC}"
-    # if $mysql || $redis; then
     echo -e "DB_PARTITION: ${GREEN}$DB_PARTITION${NC}"
-    # fi
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}Security:${NC}"
     echo -e "PROD: ${GREEN}$PROD${NC}\n"
@@ -624,8 +616,8 @@ interactiveConfig(){
     read -r -p "Do you want to proceed with the installation? (y/n): " confirm
     confirm=${confirm:-$default_confirm}
     if [[ $confirm != "y" ]]; then
-    echo "Installation aborted."
-    exit 1
+        warn "Installation aborted."
+        exit 1
     fi
 
 }
@@ -654,7 +646,7 @@ setupLXD(){
     # Create Network
     NETWORK_NAME=$(generateName "net")
     # max len of 15 
-    NETWORK_NAME=${NETWORK_NAME:0:15}
+    NETWORK_NAME=${NETWORK_NAME:0:14}
     if checkRessourceExist "network" "$NETWORK_NAME"; then
         error "Network '$NETWORK_NAME' already exists."
     fi
@@ -1000,8 +992,36 @@ interrupt() {
 }
 
 
-usage(){
-    echo "Usage: $0 [-i | --interactive] | [--misp-image VALUE] [--mysql-image VALUE] [--redis-image VALUE] [additional optional flags ...]"
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  -i, --interactive               Activates an interactive installation process."
+    echo "  -p, --production                Set the MISP application to run in production mode."
+    echo "  --project <project_name>        Specify the name of the LXD project."
+    echo "  --misp-image <image_file>       Specify the MISP instance image file."
+    echo "  --misp-name <container_name>    Specify the MISP container name."
+    echo "  --mysql-image <image_file>      Specify the MariaDB instance image file."
+    echo "  --mysql-name <container_name>   Specify the MariaDB container name."
+    echo "  --mysql-db <database_name>      Specify the MISP database name."
+    echo "  --mysql-user <user_name>        Specify the MariaDB user name."
+    echo "  --mysql-pwd <password>          Specify the MariaDB user password."
+    echo "  --mysql-root-pwd <password>     Specify the MariaDB root password."
+    echo "  --redis-image <image_file>      Specify the Redis instance image file."
+    echo "  --redis-name <container_name>   Specify the Redis container name."
+    echo "  --no-modules                    Disable the setup of MISP Modules."
+    echo "  --modules-image <image_file>    Specify the MISP Modules image file."
+    echo "  --modules-name <container_name> Specify the MISP Modules container name."
+    echo "  --app-partition <partition>     Specify the MISP container partition."
+    echo "  --db-partition <partition>      Specify the database container partition."
+    echo
+    echo "Examples:"
+    echo "  $0 --interactive"
+    echo "  $0 --production --project my_project --mysql-user admin --mysql-pwd securepassword"
+    echo
+    echo "Note:"
+    echo "  - This script sets up and configures an LXD project environment for MISP."
+    echo "  - Use only alphanumeric characters and hyphens for container names and partitions."
     exit 1
 }
 
@@ -1197,6 +1217,9 @@ cleanup(){
 }
 
 # Main
+if [ -z "$1" ]; then
+    usage
+fi
 checkSoftwareDependencies
 setDefaultArgs
 # Check for interactive install
@@ -1248,7 +1271,13 @@ initializeDB
 ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting MISP.live false --force
 
 # Start workers
-${LXC_MISP} --cwd=${PATH_TO_MISP}/app/Console/worker -- ${SUDO_WWW} -- bash start.sh
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque stop --all
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue default
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue prio
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue cache
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue email
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue update
+${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque startscheduler --interval 5
 
 info "7" "Create Keys"
 setupGnuPG

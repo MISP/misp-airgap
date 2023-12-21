@@ -27,17 +27,14 @@ setDefaultArgs(){
 
     default_mysql="no"
     default_mysql_img=""
-    #default_current_mysql=""
     default_new_mysql=$(generateName "mysql")
 
     default_redis="no"
     default_redis_img=""
-    #default_current_redis=""
     default_new_redis=$(generateName "redis")
     
     default_modules="no"
     default_modules_img=""
-    #default_current_modules=""
     default_new_modules=$(generateName "modules")
 }
 
@@ -130,6 +127,7 @@ usage() {
     echo "  - The script updates specified containers to new versions using provided images."
     echo "  - Mandatory fields must be specified for each component you wish to update."
     echo "  - Use only alphanumeric characters and hyphens for container names."
+    exit 1
 }
 
 
@@ -581,7 +579,7 @@ updateMISP(){
     lxc exec $NEW_MISP -- sudo -u www-data bash -c "$PATH_TO_MISP/app/Console/cake Admin runUpdates"
 
     # Start workers
-    lxc exec $NEW_MISP --cwd=${PATH_TO_MISP}/app/Console/worker -- sudo -u "www-data" -H sh -c "bash start.sh"
+    # lxc exec $NEW_MISP --cwd=${PATH_TO_MISP}/app/Console/worker -- sudo -u "www-data" -H sh -c "bash start.sh"
 
     okay "Stopping current MISP instance..."
     lxc stop $CURRENT_MISP
@@ -980,6 +978,9 @@ interactiveConfig(){
 }
 
 # main
+if [ -z "$1" ]; then
+    usage
+fi
 checkSoftwareDependencies
 setVars
 setDefaultArgs
@@ -1036,6 +1037,15 @@ if $MODULES; then
     updateModules
     CURRENT_MODULES=$NEW_MODULES
 fi
+
+# Restart worker
+lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque stop --all
+lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue default
+lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue prio
+lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue cache
+lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue email
+lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue update
+lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque startscheduler --interval 5
 
 # Print info
 misp_ip=$(lxc list $CURRENT_MISP --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
