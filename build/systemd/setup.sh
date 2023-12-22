@@ -1,0 +1,56 @@
+#!/bin/bash
+
+DIR="$(dirname "$0")"
+SERVICE_FILE="updatetracker.service"
+SERVICE_PATH="/etc/systemd/system/"
+MISP_AIRGAP_PATH="/opt/misp_airgap"
+BUILD_DIR="${DIR}/../../build"
+
+log() {
+    echo "[$(date +'%Y-%m-%dT%H:%M:%S%z')]: $*"
+}
+
+echo "Start setting up updatetracker service ..."
+
+if [[ $EUID -ne 0 ]]; then
+    log "This script must be run as root or with sudo privileges"
+    exit 1
+fi
+
+if [[ ! -d "$MISP_AIRGAP_PATH" ]]; then
+    mkdir -p "$MISP_AIRGAP_PATH"/images || { log "Failed to create directory $MISP_AIRGAP_PATH"; exit 1; }
+fi
+
+if [[ -d "$BUILD_DIR" ]]; then
+    cp -r "$BUILD_DIR" "$MISP_AIRGAP_PATH/" || { log "Failed to copy build directory"; exit 1; }
+else
+    log "Build directory $BUILD_DIR does not exist"
+    exit 1
+fi
+
+# Create user if it doesn't exist
+if ! id "updatetracker" &>/dev/null; then
+    useradd -r -s /bin/false updatetracker || { log "Failed to create user updatetracker"; exit 1; }
+fi
+
+# Set ownership and permissions
+chown -R updatetracker: "$MISP_AIRGAP_PATH" || { log "Failed to change ownership"; exit 1; }
+chmod -R u+x "$MISP_AIRGAP_PATH/build/"*.py || { log "Failed to set execute permission on scripts"; exit 1; }
+chmod -R u+x "$MISP_AIRGAP_PATH/build/"*.sh || { log "Failed to set execute permission on scripts"; exit 1; }
+chmod -R u+w "$MISP_AIRGAP_PATH/images/" || { log "Failed to set execute permission on images dir"; exit 1; }
+
+
+# Copy service file
+if [[ -f "$SERVICE_FILE" ]]; then
+    cp "${SERVICE_FILE}" "${SERVICE_PATH}" || { log "Failed to copy service file"; exit 1; }
+else
+    log "Service file $SERVICE_FILE not found"
+    exit 1
+fi
+
+# Reload systemd, enable and start the service
+systemctl daemon-reload || { log "Failed to reload systemd daemon"; exit 1; }
+systemctl enable "${SERVICE_FILE}" || { log "Failed to enable service"; exit 1; }
+systemctl start "${SERVICE_FILE}" || { log "Failed to start service"; exit 1; }
+
+log "Service setup completed successfully."

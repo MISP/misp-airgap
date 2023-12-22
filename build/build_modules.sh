@@ -8,6 +8,11 @@ RED='\033[0;31m'
 VIOLET='\033[0;35m'
 NC='\033[0m' # No Color
 
+setDefaultArgs(){
+    default_image="modules"
+    default_outputdir="/opt/misp_airgap/images/"
+}
+
 error() {
     local msg=$1
     echo -e "${RED}Error: $msg${NC}" > /dev/tty
@@ -74,7 +79,6 @@ createImage(){
     commit_id=$(getModulesCommitID)
     lxc stop $CONTAINER
     lxc publish $CONTAINER --alias $IMAGE
-    #setImageDescription "$version" "$commit_id" "$IMAGE"
     lxc image export $IMAGE $OUTPUTDIR
     # Workaround for renaming image
     cd $OUTPUTDIR && mv -i "$(ls -t | head -n1)" ${IMAGE}_${commit_id}.tar.gz
@@ -130,20 +134,64 @@ addModulesInfo(){
     rm info.json
 }
 
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  -h, --help       Show this help message and exit."
+    echo "  -n, --name       Specify the name of the image to create. Default is 'misp'."
+    echo "  -o, --outputdir  Specify the output directory for the created image. Default is '/opt/misp_airgap/'."
+    echo
+    echo "Description:"
+    echo "  This script sets up a container for MISP modules, installs MISP modules within it,"
+    echo "  and then creates an image of this installation."
+}
+
+cleanup(){
+    cleanupProject "$PROJECT_NAME"
+    lxc storage delete "$STORAGE_POOL_NAME"
+    lxc network delete "$NETWORK_NAME"
+}
+
 # Main
 checkSoftwareDependencies
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <image-name> <outputdir>"
-    exit 1
+setDefaultArgs
+
+VALID_ARGS=$(getopt -o hn:o: --long help,name:,outputdir:  -- "$@")
+if [[ $? -ne 0 ]]; then
+    exit 1;
 fi
-IMAGE=$1
-OUTPUTDIR=$2
+
+eval set -- "$VALID_ARGS"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h | --help)
+            usage
+            exit 0 
+            ;;
+        -n | --name)
+            image=$2
+            shift 2
+            ;;
+        -o | --outputdir)
+            outputdir=$2
+            shift 2
+            ;;
+        *)  
+            break 
+            ;;
+    esac
+done
+
+IMAGE=${image:-$default_image}
+OUTPUTDIR=${outputdir:-$default_outputdir}
 
 if [ ! -e "$OUTPUTDIR" ]; then
     echo -e "${RED}Error${NC}: The specified directory does not exist."
     exit 1
 fi
 setVars
+trap cleanup EXIT
 setupLXD
 lxc launch ubuntu:22.04 "$CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
 installMISPModules
@@ -154,12 +202,7 @@ if [ "$(${LXC_EXEC} systemctl is-active misp-modules)" = "active" ]; then
 else
     error "Service misp-modules is not running."
     lxc stop $CONTAINER
-    cleanupProject "$PROJECT_NAME"
-    lxc storage delete "$STORAGE_POOL_NAME"
-    lxc network delete "$NETWORK_NAME"
+    cleanup
     exit 1
 fi
 createImage
-cleanupProject "$PROJECT_NAME"
-lxc storage delete "$STORAGE_POOL_NAME"
-lxc network delete "$NETWORK_NAME"

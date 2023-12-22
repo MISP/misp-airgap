@@ -20,6 +20,22 @@ Before setting up your environment, ensure that you meet the following prerequis
   - jq 1.6
   - yq 4.35.2
 
+## Hardware Requirements
+
+To run all containers set up by the installation script, the following hardware specifications are recommended:
+
+- **CPU**: 
+  - Minimum: 4 cores
+  - Recommended for optimal performance: 4 or more cores
+
+- **Memory (RAM)**: 
+  - Minimum: 8 GB
+  - Recommended: 16 GB or more for better performance
+
+- **Storage**:
+  - Minimum: 50 GB
+  - Recommended: 100 GB or more, SSD preferred for better performance
+
 
 ## Installation
 First, [install LXD](https://ubuntu.com/lxd/install) on your air-gapped host system. Additionally, install the [additional software](#requirements) needed.
@@ -125,4 +141,6 @@ Below is the table summarizing the script flags and variables:
 | `MODULES_IMAGE`       | `<none>`                  | `--modules-image <image>`   | Specify the modules image.                           |
 | `NEW_MODULES`         | `modules-<creation_time>` | `--new-modules <name>`      | Specify the new modules container name.              |
 
+
+## Build
 

@@ -1022,7 +1022,6 @@ usage() {
     echo "Note:"
     echo "  - This script sets up and configures an LXD project environment for MISP."
     echo "  - Use only alphanumeric characters and hyphens for container names and partitions."
-    exit 1
 }
 
 checkForDefault(){
@@ -1050,6 +1049,7 @@ nonInteractiveConfig(){
         case "$1" in
             -h | --help)
                 usage
+                exit 0
                 ;;
             -p | --production)
                 prod="y"
@@ -1219,6 +1219,7 @@ cleanup(){
 # Main
 if [ -z "$1" ]; then
     usage
+    exit 0
 fi
 checkSoftwareDependencies
 setDefaultArgs
