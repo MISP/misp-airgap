@@ -4,16 +4,10 @@
 MISPvars () {
   debug "Setting generic ${LBLUE}MISP${NC} variables shared by all flavours" 2> /dev/null
   # Some distros have no openssl installed by default, catch that exception.
-  $(openssl help 2> /dev/null) || (echo "No openssl, please install to continue"; exit -1)
+  $(openssl help 2> /dev/null) || (echo "No openssl, please install to continue"; exit 1)
   # Local non-root MISP user
   MISP_USER="${MISP_USER:-misp}"
   MISP_PASSWORD="${MISP_PASSWORD:-$(openssl rand -hex 32)}"
-
-  # Cheap distribution detector
-  FLAVOUR="$(. /etc/os-release && echo "$ID"| tr '[:upper:]' '[:lower:]')"
-  STREAM="$(. /etc/os-release && echo "$NAME"| grep -o -i stream |tr '[:upper:]' '[:lower:]')"
-  DIST_VER="$(. /etc/os-release && echo "$VERSION_ID")"
-  DISTRI=${FLAVOUR}${DIST_VER}${STREAM}
 
   WWW_USER="www-data"
   SUDO_WWW="sudo -H -u ${WWW_USER} "
@@ -21,15 +15,9 @@ MISPvars () {
 
   # MISP configuration variables
   PATH_TO_MISP="${PATH_TO_MISP:-/var/www/MISP}"
-  PATH_TO_MISP_SCRIPTS="${PATH_TO_MISP}/app/files/scripts"
-  ## For future use
-  # TMPDIR="${TMPDIR:-$PATH_TO_MISP/app/tmp}"
-
   FQDN="${FQDN:-misp.local}"
 
   MISP_BASEURL="${MISP_BASEURL:-""}"
-
-  MISP_LIVE="0"
 
   # Database configuration
   DBHOST="${DBHOST:-localhost}"
@@ -63,14 +51,6 @@ MISPvars () {
   # checkAptLock alias to make sure people are not confused when blindly copy pasting blobs of code
   alias checkAptLock="echo 'Function used in Installer to make sure apt is not locked'"
 
-  # php.ini configuration
-  upload_max_filesize="50M"
-  post_max_size="50M"
-  max_execution_time="300"
-  memory_limit="2048M"
-  session0sid_length="32"
-  session0use_strict_mode="1"
-
   CAKE="${PATH_TO_MISP}/app/Console/cake"
 
   # sudo config to run $LUSER commands
@@ -97,12 +77,7 @@ esac
 
 ## Usage of this script
 usage () {
-  if [ "$0" == "bash" ]; then
-    WEB_INSTALL=1
-    SCRIPT_NAME="Web Installer Command"
-  else
-    SCRIPT_NAME=$0
-  fi
+  SCRIPT_NAME=$0
 
   exec &> /dev/tty
   space
@@ -159,30 +134,18 @@ checkOpt () {
 
 setOpt () {
   options=()
-  for o in $@; do 
+  for o in "$@"; do 
     case "$o" in
       ("-c") echo "core"; CORE=1 ;;
-      ("-V") echo "viper"; VIPER=1 ;;
-      ("-M") echo "modules"; MODULES=1 ;;
-      ("-D") echo "dashboard"; DASHBOARD=1 ;;
-      ("-m") echo "mail2"; MAIL2=1 ;;
-      ("-S") echo "ssdeep"; SSDEEP=1 ;;
       ("-A") echo "all"; ALL=1 ;;
       ("-C") echo "pre"; PRE=1 ;;
       ("-U") echo "upgrade"; UPGRADE=1 ;;
-      ("-N") echo "nuke"; NUKE=1 ;;
       ("-u") echo "unattended"; UNATTENDED=1 ;;
-      ("-ni") echo "noninteractive"; NONINTERACTIVE=1 ;;
-      ("-f") echo "force"; FORCE=1 ;;
       (*) echo "$o is not a valid argument"; exit 1 ;;
     esac
   done
 }
 
-# check if command_exists
-command_exists () {
-  command -v "$@" > /dev/null 2>&1
-}
 
 checkInstaller () {
   if [[ $(which shasum > /dev/null 2>&1 ; echo $?) -ne 0 ]]; then
@@ -220,24 +183,6 @@ space () {
   echo ""
 }
 
-# Spinner so the user knows something is happening
-spin()
-{
-  if [[ "$NO_PROGRESS" == "1" ]]; then
-    return
-  fi
-  spinner="/|\\-/|\\-"
-  while :
-  do
-    for i in `seq 0 7`
-    do
-      echo -n "${spinner:$i:1}"
-      echo -en "\010"
-      sleep 0.$i
-    done
-  done
-}
-
 # Progress bar
 progress () {
   progress=$[$progress+$1]
@@ -272,37 +217,6 @@ checkLocale () {
     sudo locale-gen en_US.UTF-8
     sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
   fi
-}
-
-# Simple function to check command exit code
-checkFail () {
-  # '-ne' checks for numerical differences, '==' used for strings
-  if [[ $2 -ne 0 ]]; then
-    echo "iAmError: $1"
-    echo "The last command exited with error code: $2"
-    exit $2
-  fi
-}
-
-ask_o () {
-
-  ANSWER=""
-
-  if [ -z "${1}" ]; then
-    echo "This function needs at least 1 parameter."
-    exit 1
-  fi
-
-  [ -z "${2}" ] && OPT1="y" || OPT1="${2}"
-  [ -z "${3}" ] && OPT2="n" || OPT2="${3}"
-
-  while true; do
-    case "${ANSWER}" in "${OPT1}" | "${OPT2}") break ;; esac
-    echo -e -n "${1} (${OPT1}/${OPT2}) "
-    read ANSWER
-    ANSWER=$(echo "${ANSWER}" |  tr '[:upper:]' '[:lower:]')
-  done
-
 }
 
 clean () {
@@ -360,59 +274,6 @@ checkID () {
 
 }
 
-# pre-install check to make sure what we will be installing on, is ready and not a half installed system
-preInstall () {
-# preInstall needs to be able to be called before ANY action. Install/Upgrade/AddTool
-# Pre install wants to be the place too where the following is checked and set via ENV_VAR:
-# Check if composer is installed and functioning
-# Check if misp db is installed (API call would confirm that the DB indeed works)
-# Check apache config (Maybe try to talk to the server via api, this would confirm quite a lot)
-# Check if workers are running/installed, maybe kick them if they are not
-# /var/www/MISP/app/Config/[bootstrap,databases,core,config].php exists
-# /var/www/MISP perms are correct (for $SUDO_WWW useage)
-#
-
-  # Check if $PATH_TO_MISP exists and is writable by $WWW_USER
-  [[ -d "$PATH_TO_MISP" ]] && PATH_TO_MISP_EXISTS=1 && echo "$PATH_TO_MISP exists"
-
-  # .git exists and git is working for $WWW_USER
-  [[ -d "$PATH_TO_MISP/.git" ]] && PATH_TO_GIT_EXISTS=1 && echo "$PATH_TO_MISP/.git exists" && cd $PATH_TO_MISP && $SUDO_WWW git status
-
-  # .gnupg exists and working correctly
-  [[ -d "$PATH_TO_MISP/.gnupg" ]] && PATH_TO_GNUPG_EXISTS=1 && echo "$PATH_TO_MISP/.gnupg exists"
-
-
-  # Extract username, password and dbname
-  ##cat database.php |grep -v // |grep -e database -e login -e password |tr -d \' |tr -d \ |tr -d , |tr -d \>
-  DBPASSWORD_MISP=$(cat database.php |grep -v // |grep -e password |tr -d \' |tr -d \ |tr -d , |tr -d \> |cut -f 2 -d=)
-  DBUSER_MISP=$(cat database.php |grep -v // |grep -e login |tr -d \' |tr -d \ |tr -d , |tr -d \> |cut -f 2 -d=)
-  DBNAME=$(cat database.php |grep -v // |grep -e database |tr -d \' |tr -d \ |tr -d , |tr -d \> |cut -f 2 -d=)
-  AUTH_KEY=$(mysql -h $DBHOST --disable-column-names -B  -u $DBUSER_MISP -p"$DBPASSWORD_MISP" $DBNAME -e 'SELECT authkey FROM users WHERE role_id=1 LIMIT 1')
-
-  # Check if db exists
-  [[ -d "/var/lib/mysql/$DBNAME" ]] && MISP_DB_DIR_EXISTS=1 && echo "/var/lib/mysql/$DBNAME exists"
-
-  echo -e "${RED}Place-holder, not implemented yet.${NC}"
-  exit
-}
-
-# Upgrade function
-upgrade () {
-  headerJSON="application/json"
-  Acc="Accept:"
-  Autho="Authorization:"
-  CT="Content-Type:"
-  MISP_BASEURL="https://127.0.0.1"
-  ${SUDO_WWW} sh -c "cd ${PATH_TO_MISP}/app ; php composer.phar update ; php composer.phar self-update"
-
-  for URN in $(echo "galaxies warninglists noticelists objectTemplates taxonomies"); do
-    curl --header "$Autho $AUTH_KEY" --header "$Acc $headerJSON" --header "$CT $headerJSON" -k -X POST $MISP_BASEURL/$URN/update
-  done
-
-  echo -e "${RED}Place-holder, not implemented yet.${NC}"
-  exit
-}
-
 # check is /usr/local/src is RW by misp user
 checkUsrLocalSrc () {
   echo ""
@@ -437,55 +298,6 @@ checkUsrLocalSrc () {
   fi
 }
 
-
-setBaseURL () {
-  debug "Setting Base URL"
-
-  CONN=$(ip -br -o -4 a |grep UP |head -1 |tr -d "UP")
-  IFACE=$(echo $CONN |awk {'print $1'})
-  IP=$(echo $CONN |awk {'print $2'}| cut -f1 -d/)
-
-  MISP_BASEURL='""'
-    # Webserver configuration
-  FQDN='misp.local'
-}
-
-# Test and install software RNG
-installRNG () {
-  sudo modprobe tpm-rng 2> /dev/null
-  if [ "$?" -eq "0" ]; then 
-    echo tpm-rng | sudo tee -a /etc/modules
-  fi
-  checkAptLock
-  sudo apt install -qy rng-tools # This might fail on TPM grounds, enable the security chip in your BIOS
-  sudo service rng-tools start
-
-  if [ "$?" -eq "1" ]; then 
-    sudo apt purge -qy rng-tools
-    sudo apt install -qy haveged
-    sudo /etc/init.d/haveged start
-  fi
-}
-
-# Disables sleep
-disableSleep () {
-  debug "Disabling sleep etc if run from a Laptop as the install might take some time…" > /dev/tty
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 0 2> /dev/null
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-timeout 0 2> /dev/null
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type nothing 2> /dev/null
-  gsettings set org.gnome.desktop.screensaver lock-enabled false 2> /dev/null
-  gsettings set org.gnome.desktop.screensaver idle-activation-enabled false 2> /dev/null
-
-  setterm -blank 0 -powersave off -powerdown 0
-  xset s 0 0 2> /dev/null
-  xset dpms 0 0 2> /dev/null
-  xset dpms force off
-  xset s off 2> /dev/null
-  service sleepd stop
-  kill $(lsof | grep 'sleepd' | awk '{print $2}')
-  checkAptLock
-}
-
 # Remove alias if present
 if [[ $(type -t checkAptLock) == "alias" ]]; then unalias checkAptLock; fi
 # Simple function to make sure APT is not locked
@@ -502,96 +314,6 @@ checkAptLock () {
   done
   unset DONE
 }
-
-# Installing core dependencies
-installDeps () {
-  debug "Installing core dependencies"
-  checkAptLock
-  sudo apt install -qy etckeeper
-  # Skip dist-upgrade for now, pulls in 500+ updated packages
-  #sudo apt -y dist-upgrade
-  gitMail=$(git config --global --get user.email ; echo $?)
-  if [ "$?" -eq "1" ]; then 
-    git config --global user.email "root@kali.lan"
-  fi
-  gitUser=$(git config --global --get user.name ; echo $?)
-  if [ "$?" -eq "1" ]; then 
-    git config --global user.name "Root User"
-  fi
-
-  [[ -n $KALI ]] || [[ -n $UNATTENDED ]] && sudo DEBIAN_FRONTEND=noninteractive apt install -qy postfix || sudo apt install -qy postfix
-
-  sudo apt install -qy \
-  curl gcc git gnupg-agent make openssl redis-server neovim unzip zip libyara-dev python3-yara python3-redis python3-zmq sqlite3 python3-virtualenv \
-  mariadb-client \
-  mariadb-server \
-  apache2 apache2-doc apache2-utils \
-  python3-dev python3-pip libpq5 libjpeg-dev libfuzzy-dev ruby asciidoctor \
-  libxml2-dev libxslt1-dev zlib1g-dev python3-setuptools
-
-  installRNG
-}
-
-# generate MISP apache conf
-genApacheConf () {
-  echo "<VirtualHost _default_:80>
-          ServerAdmin admin@localhost.lu
-          ServerName misp.local
-
-          Redirect permanent / https://misp.local
-
-          LogLevel warn
-          ErrorLog /var/log/apache2/misp.local_error.log
-          CustomLog /var/log/apache2/misp.local_access.log combined
-          ServerSignature Off
-  </VirtualHost>
-
-  <VirtualHost _default_:443>
-          ServerAdmin admin@localhost.lu
-          ServerName misp.local
-          DocumentRoot $PATH_TO_MISP/app/webroot
-
-          <Directory $PATH_TO_MISP/app/webroot>
-                  Options -Indexes
-                  AllowOverride all
-  		            Require all granted
-                  Order allow,deny
-                  allow from all
-          </Directory>
-
-          SSLEngine On
-          SSLCertificateFile /etc/ssl/private/misp.local.crt
-          SSLCertificateKeyFile /etc/ssl/private/misp.local.key
-  #        SSLCertificateChainFile /etc/ssl/private/misp-chain.crt
-
-          LogLevel warn
-          ErrorLog /var/log/apache2/misp.local_error.log
-          CustomLog /var/log/apache2/misp.local_access.log combined
-          ServerSignature Off
-          Header set X-Content-Type-Options nosniff
-          Header set X-Frame-Options DENY
-  </VirtualHost>" | sudo tee /etc/apache2/sites-available/misp-ssl.conf
-}
-
-# Main composer function
-composer () {
-  sudo mkdir -p /var/www/.composer ; sudo chown ${WWW_USER}:${WWW_USER} /var/www/.composer
-  ${SUDO_WWW} sh -c "cd ${PATH_TO_MISP}/app ; php composer.phar install --no-dev"
-}
-
-# Legacy composer function
-composer74 () {
-  sudo mkdir -p /var/www/.composer ; sudo chown ${WWW_USER}:${WWW_USER} /var/www/.composer
-  ${SUDO_WWW} sh -c "cd ${PATH_TO_MISP}/app ; php7.4 composer.phar install --no-dev"
-}
-
-# TODO: FIX somehow the alias of the function does not work
-# Composer on php 7.0 does not need any special treatment the provided phar works well
-alias composer70=composer
-# Composer on php 7.2 does not need any special treatment the provided phar works well
-alias composer72=composer
-# Composer on php 7.3 does not need any special treatment the provided phar works well
-alias composer73=composer
 
 
 # Run PyMISP tests
@@ -973,161 +695,6 @@ WantedBy=multi-user.target" | sudo tee /etc/systemd/system/misp-workers.service
   sudo sed -i -e '$i \sysctl vm.overcommit_memory=1\n' /etc/rc.local
 }
 
-
-modulesCAKE () {
-  # Enable Enrichment, set better timeouts
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_services_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hover_enable" false
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hover_popover_only" false
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hover_timeout" 150
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_timeout" 300
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_bgpranking_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_countrycode_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cve_advanced_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_cpe_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dns_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_eql_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_steroids_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ipasn_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_reversedns_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_syntax_validator_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_yara_query_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_wiki_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatminer_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_threatcrowd_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_hashdd_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_rbl_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_syntax_validator_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_stix2_pattern_syntax_validator_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_sigma_queries_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_dbl_spamhaus_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_btc_scam_check_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_macvendors_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_qrcode_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ocr_enrich_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pdf_enrich_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_docx_enrich_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_xlsx_enrich_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_pptx_enrich_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_ods_enrich_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_odt_enrich_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_urlhaus_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_malwarebazaar_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_html_to_markdown_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_socialscan_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_services_url" "http://127.0.0.1"
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Enrichment_services_port" 6666
-
-  # Enable Import modules, set better timeout
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_services_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_services_url" "http://127.0.0.1"
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_services_port" 6666
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_timeout" 300
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_ocr_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_mispjson_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_openiocimport_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_threatanalyzer_import_enabled" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Import_csvimport_enabled" true
-
-  # Enable Export modules, set better timeout
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_services_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_services_url" "http://127.0.0.1"
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_services_port" 6666
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_timeout" 300
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.Export_pdfexport_enabled" true
-}
-
-# Main MISP Dashboard install function
-mispDashboard () {
-  debug "Install misp-dashboard"
-  # Install pyzmq to main MISP venv
-  debug "Installing PyZMQ"
-  $SUDO_WWW ${PATH_TO_MISP}/venv/bin/pip install pyzmq
-  cd /var/www
-  sudo mkdir misp-dashboard
-  sudo chown $WWW_USER:$WWW_USER misp-dashboard
-
-  false; while [[ $? -ne 0 ]]; do $SUDO_WWW git clone https://github.com/MISP/misp-dashboard.git; done
-  cd misp-dashboard
-  sudo -H /var/www/misp-dashboard/install_dependencies.sh
-  sudo sed -i "s/^host\ =\ localhost/host\ =\ 0.0.0.0/g" /var/www/misp-dashboard/config/config.cfg
-  sudo sed -i '/Listen 80/a Listen 0.0.0.0:8001' /etc/apache2/ports.conf
-  sudo apt install libapache2-mod-wsgi-py3 net-tools -y
-  echo "<VirtualHost *:8001>
-      ServerAdmin admin@misp.local
-      ServerName misp.local
-
-      DocumentRoot /var/www/misp-dashboard
-
-      WSGIDaemonProcess misp-dashboard \
-         user=misp group=misp \
-         python-home=/var/www/misp-dashboard/DASHENV \
-         processes=1 \
-         threads=15 \
-         maximum-requests=5000 \
-         listen-backlog=100 \
-         queue-timeout=45 \
-         socket-timeout=60 \
-         connect-timeout=15 \
-         request-timeout=60 \
-         inactivity-timeout=0 \
-         deadlock-timeout=60 \
-         graceful-timeout=15 \
-         eviction-timeout=0 \
-         shutdown-timeout=5 \
-         send-buffer-size=0 \
-         receive-buffer-size=0 \
-         header-buffer-size=0 \
-         response-buffer-size=0 \
-         server-metrics=Off
-
-      WSGIScriptAlias / /var/www/misp-dashboard/misp-dashboard.wsgi
-
-      <Directory /var/www/misp-dashboard>
-          WSGIProcessGroup misp-dashboard
-          WSGIApplicationGroup %{GLOBAL}
-          Require all granted
-      </Directory>
-
-      LogLevel info
-      ErrorLog /var/log/apache2/misp-dashboard.local_error.log
-      CustomLog /var/log/apache2/misp-dashboard.local_access.log combined
-      ServerSignature Off
-  </VirtualHost>" | sudo tee /etc/apache2/sites-available/misp-dashboard.conf
-
-  # Enable misp-dashboard in apache and reload
-  sudo a2ensite misp-dashboard
-  sudo systemctl restart apache2
-
-  # Needs to be started after apache2 is reloaded so the port status check works
-  $SUDO_WWW bash /var/www/misp-dashboard/start_all.sh
-
-  # Add misp-dashboard to rc.local to start on boot.
-  sudo sed -i -e '$i \sudo -u www-data bash /var/www/misp-dashboard/start_all.sh > /tmp/misp-dashboard_rc.local.log\n' /etc/rc.local
-}
-
-dashboardCAKE () {
-  # Enable ZeroMQ for misp-dashboard
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_host" "127.0.0.1"
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_port" 50000
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "localhost"
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" 6379
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_database" 1
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_namespace" "mispq"
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_include_attachments" false
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_event_notifications_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_object_notifications_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_object_reference_notifications_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_attribute_notifications_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_tag_notifications_enable" false
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_sighting_notifications_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_user_notifications_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_organisation_notifications_enable" true
-  ${SUDO_WWW} ${RUN_PHP} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_audit_notifications_enable" false
-}
-
 colors () {
   # Some colors for easier debug and better UX (not colorblind compatible, PR welcome)
   RED='\033[0;31m'
@@ -1154,6 +721,13 @@ debug () {
     #exec 3>&1 &>/dev/null
     :
   fi
+}
+
+upgradeToPHP74 () {
+  sudo apt install software-properties-common -qy
+  sudo add-apt-repository ppa:ondrej/php -y
+  sudo apt update
+  sudo apt dist-upgrade -y
 }
 
 ssdeep () {
@@ -1284,7 +858,7 @@ if [[ $# -eq 0 && "$0" != "/tmp/misp-kali.sh" ]]; then
 else
   debug "Setting install options with given parameters."
   # The setOpt/checkOpt function lives in generic/supportFunctions.md
-  setOpt $@
+  setOpt "$@"
   checkOpt core && echo "${LBLUE}MISP${NC} ${GREEN}core${NC} selected"
   checkOpt viper && echo "${GREEN}Viper${NC} selected"
   checkOpt modules && echo "${LBLUE}MISP${NC} ${GREEN}modules${NC} selected"
@@ -1307,7 +881,8 @@ else
 fi
 
 
-echo "Install on Ubuntu 20.04 LTS fully supported."
-echo "Please report bugs/issues here: https://github.com/MISP/MISP/issues"
-installSupported PHP="7.4" && exit || exit
+  echo "Install on Ubuntu 22.04 LTS fully supported."
+  echo "Please report bugs/issues here: https://github.com/MISP/MISP/issues"
+  upgradeToPHP74
+  installSupported PHP="7.4" && exit || exit
 exit
