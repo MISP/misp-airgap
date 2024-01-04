@@ -12,8 +12,9 @@ DEPEDENCIES=(jq curl)
 
 setVars(){
     REPO_URL="https://api.github.com/repos/MISP/misp-airgap"
-    MISP_INFO_TEMPLATE_FILE="./templates/misp_info.json"
-    MODULES_INFO_TEMPLATE_FILE="./templates/modules_info.json"
+    PATH_TO_BUILD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+    MISP_INFO_TEMPLATE_FILE="$PATH_TO_BUILD/templates/misp_info.json"
+    MODULES_INFO_TEMPLATE_FILE="$PATH_TO_BUILD/templates/modules_info.json"
     MISP_PATH="/var/www/"
     PROJECT_NAME=$(generateName "misp")
     STORAGE_POOL_NAME=$(generateName "misp")
@@ -24,6 +25,9 @@ setVars(){
     REDIS_CONTAINER=$(generateName "redis")
     MODULES_CONTAINER=$(generateName "modules")
     UBUNTU="ubuntu:22.04"
+    BUILD_REDIS_SOURCE=false
+    BUILD_MYSQL_SOURCE=false
+    REDIS_SERVICE_FILE="$PATH_TO_BUILD/conf/redis.service"
 }
 
 setDefaultArgs(){
@@ -342,7 +346,7 @@ sign() {
     fi
     local file=$1
 
-    PATH_TO_BUILD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+    # PATH_TO_BUILD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
     SIGN_CONFIG_FILE="$PATH_TO_BUILD/conf/sign.json"
 
     if [[ ! -f "$SIGN_CONFIG_FILE" ]]; then
@@ -388,7 +392,7 @@ checkSoftwareDependencies "${DEPEDENCIES[@]}"
 setVars
 setDefaultArgs
 
-VALID_ARGS=$(getopt -o ho:s --long help,outputdir:,misp,mysql,redis,modules,misp-name:,mysql-name:,redis-name:,modules-name:,sign  -- "$@")
+VALID_ARGS=$(getopt -o ho:s --long help,outputdir:,misp,mysql,redis,modules,misp-name:,mysql-name:,redis-name:,modules-name:,sign,redis-version:,mysql-version:  -- "$@")
 if [[ $? -ne 0 ]]; then
     exit 1;
 fi
@@ -430,6 +434,16 @@ while [ $# -gt 0 ]; do
             ;;
         --modules-name)
             modules_image=$2
+            shift 2
+            ;;
+        --redis-version)
+            REDIS_VERSION=$2
+            BUILD_REDIS_SOURCE=true
+            shift 2
+            ;;
+        --mysql-version)
+            MYSQL_VERSION=$2
+            BUILD_MYSQL_SOURCE=true
             shift 2
             ;;
         -o | --outputdir)
@@ -513,9 +527,31 @@ fi
 if $REDIS; then
     lxc launch $UBUNTU "$REDIS_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$REDIS_CONTAINER"
-    # Install Redis
-    lxc exec $REDIS_CONTAINER -- apt update
-    lxc exec $REDIS_CONTAINER -- apt install -y redis-server
+
+    if $BUILD_REDIS_SOURCE; then
+        # Install Redis
+        lxc exec $REDIS_CONTAINER -- apt update
+        lxc exec $REDIS_CONTAINER -- apt install -y wget build-essential tcl
+        lxc exec $REDIS_CONTAINER -- wget http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz && \
+        lxc exec $REDIS_CONTAINER -- tar xzf redis-$REDIS_VERSION.tar.gz && \
+        lxc exec $REDIS_CONTAINER --cwd=/root/redis-$REDIS_VERSION -- make && \
+        lxc exec $REDIS_CONTAINER --cwd=/root/redis-$REDIS_VERSION -- make install
+        # Create redis service
+        lxc exec $REDIS_CONTAINER -- mkdir -p /etc/redis
+        lxc exec $REDIS_CONTAINER --cwd=/root/redis-$REDIS_VERSION -- cp redis.conf /etc/redis/redis.conf
+        lxc file push $REDIS_SERVICE_FILE $REDIS_CONTAINER/etc/systemd/system/redis.service -v
+        lxc exec $REDIS_CONTAINER -- adduser --system --group --no-create-home redis
+        lxc exec $REDIS_CONTAINER -- mkdir -p /var/lib/redis
+        lxc exec $REDIS_CONTAINER -- chown redis:redis /var/lib/redis
+        lxc exec $REDIS_CONTAINER -- chmod 770 /var/lib/redis
+        lxc exec $REDIS_CONTAINER -- systemctl daemon-reload
+        lxc exec $REDIS_CONTAINER -- systemctl enable redis
+        lxc exec $REDIS_CONTAINER -- systemctl start redis
+    else
+        lxc exec $REDIS_CONTAINER -- apt update 
+        lxc exec $REDIS_CONTAINER -- apt install redis-server -y
+    fi
+
     redis_version=$(get_redis_version $REDIS_CONTAINER)
     # Create Image
     lxc stop $REDIS_CONTAINER
