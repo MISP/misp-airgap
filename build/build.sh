@@ -31,15 +31,15 @@ setVars(){
 }
 
 setDefaultArgs(){
-    default_misp_image="misp"
+    default_misp_image="MISP"
     default_misp=false
-    default_mysql_image="mysql"
+    default_mysql_image="MySQL"
     default_mysql=false
-    default_redis_image="redis"
+    default_redis_image="Redis"
     default_redis=false
-    default_modules_image="modules"
+    default_modules_image="Modules"
     default_modules=false
-    default_outputdir="/opt/misp_airgap/images/"
+    default_outputdir=""
     default_sign=false
 }
 
@@ -228,11 +228,11 @@ addMISPInstallerInfo(){
     # Modify the JSON template as needed using jq
     jq --arg version "$version" --arg commit_id "$misp_commit_id" --arg date "$date" --arg installer_commit_id "$installer_commit_id" --arg sha1 "$sha1" --arg sha256 "$sha256" --arg sha384 "$sha384" --arg sha512 "$sha512"\
    '.misp_version = $version | .commit_id = $commit_id | .creation_date = $date | .installer.commit_id = $installer_commit_id | .installer.sha1 = $sha1 | .installer.sha256 = $sha256 | .installer.sha384 = $sha384 | .installer.sha512 = $sha512' \
-   "$MISP_INFO_TEMPLATE_FILE" > info.json
+   "$MISP_INFO_TEMPLATE_FILE" > /tmp/info.json
 
     lxc exec "$container" -- mkdir -p /etc/misp_info
-    lxc file push info.json ${container}/etc/misp_info/
-    rm info.json
+    lxc file push /tmp/info.json ${container}/etc/misp_info/
+    rm /tmp/info.json
 }
 
 checkSoftwareDependencies(){
@@ -286,16 +286,22 @@ installMISPModules(){
     lxc exec $container -- sudo service misp-modules start
 }
 
+getModulesVersion(){
+    local container=$1
+    echo "$(lxc exec $container --cwd=/usr/local/src/misp-modules -- sudo -u www-data git tag | tail -n 1)"
+}
+
 createModulesImage(){
-    container=$1
-    image=$2
-    commit_id=$(getModulesCommitID $container)
+    local container=$1
+    local image=$2
+    local commit_id=$(getModulesCommitID $container)
+    local version=$(getModulesVersion $container)
     lxc stop $container > /dev/null
     lxc publish $container --alias $image > /dev/null
     lxc image export $image $OUTPUTDIR > /dev/null
     # Workaround for renaming image
     local new_name
-    new_name=${image}_${commit_id}.tar.gz
+    new_name=${image}_${version}_${commit_id}.tar.gz
     pushd $OUTPUTDIR > /dev/null && mv -i "$(ls -t | head -n1)" $new_name
     popd > /dev/null || return
     echo "$new_name"
@@ -309,11 +315,11 @@ addModulesInfo(){
     # Modify the JSON template as needed using jq
     jq --arg commit_id "$commit_id" --arg date "$date" \
    '.commit_id = $commit_id | .creation_date = $date' \
-   "$MODULES_INFO_TEMPLATE_FILE" > info.json
+   "$MODULES_INFO_TEMPLATE_FILE" > /tmp/info.json
 
     lxc exec $container -- mkdir -p /etc/misp_modules_info
-    lxc file push info.json ${container}/etc/misp_modules_info/
-    rm info.json
+    lxc file push /tmp/info.json ${container}/etc/misp_modules_info/
+    rm /tmp/info.json
 }
 
 usage() {
@@ -354,7 +360,8 @@ sign() {
         exit 1
     fi
 
-    GPG_KEY_ID=$(jq -r '.GPG_KEY_ID' "$SIGN_CONFIG_FILE")
+    GPG_KEY_ID=$(jq -r '.EMAIL' "$SIGN_CONFIG_FILE")
+    GPG_KEY_PASSPHRASE=$(jq -r '.PASSPHRASE' "$SIGN_CONFIG_FILE")
 
     # Check if the GPG key is available
     if ! gpg --list-keys | grep -q $GPG_KEY_ID; then
@@ -375,7 +382,7 @@ sign() {
 
     # Signing the file
     okay "Signing file: $file in directory: $SIGN_DIR with key: $GPG_KEY_ID"
-    gpg --default-key $GPG_KEY_ID --detach-sign "${file}"
+    gpg --default-key $GPG_KEY_ID --pinentry-mode loopback --passphrase $GPG_KEY_PASSPHRASE --detach-sign "${file}"
 
     # Check if the signing was successful
     if [ $? -eq 0 ]; then
@@ -498,7 +505,6 @@ if $MISP; then
     addMISPInstallerInfo "$MISP_CONTAINER"
     # Create image
     misp_image_name=$(createMISPImage "$MISP_CONTAINER" "$MISP_IMAGE")
-    warn $misp_image_name
     if $SIGN; then
         sign $misp_image_name
     fi
@@ -508,8 +514,21 @@ if $MYSQL; then
     lxc launch $UBUNTU "$MYSQL_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$MYSQL_CONTAINER"
     # Install MySQL
+    # if $BUILD_MYSQL_SOURCE; then
+    #     lxc exec $MYSQL_CONTAINER -- apt update
+    #     lxc exec $MYSQL_CONTAINER -- apt install -y zlib1g-dev build-essential cmake libncurses5-dev libssl-dev bison
+    #     lxc exec $MYSQL_CONTAINER -- wget https://downloads.mariadb.org/rest-api/mariadb/$MYSQL_VERSION/mariadb-$MYSQL_VERSION.tar.gz
+    #     lxc exec $MYSQL_CONTAINER -- tar xzf 
+    #     cmake .
+    #     make
+    #     make install
+    # sudo groupadd mysql
+    # sudo useradd -r -g mysql -s /bin/false mysql
+    # sudo /path/to/mysql_install_db --user=mysql
+    # else
     lxc exec $MYSQL_CONTAINER -- apt update
     lxc exec $MYSQL_CONTAINER -- apt install -y mariadb-server
+    # fi
     mysql_version=$(getMysqlVersion $MYSQL_CONTAINER)
     # Create Image
     lxc stop $MYSQL_CONTAINER

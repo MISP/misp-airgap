@@ -5,6 +5,8 @@ SERVICE_FILE="updatetracker.service"
 SERVICE_PATH="/etc/systemd/system/"
 MISP_AIRGAP_PATH="/opt/misp_airgap"
 BUILD_DIR="${DIR}/../../build"
+BATCH_FILE="/tmp/key_batch"
+SIGN_CONFIG_FILE="../conf/sign.json"
 
 log() {
     echo "[$(date +'%Y-%m-%dT%H:%M:%S%z')]: $*"
@@ -39,6 +41,32 @@ chmod -R u+x "$MISP_AIRGAP_PATH/build/"*.py || { log "Failed to set execute perm
 chmod -R u+x "$MISP_AIRGAP_PATH/build/"*.sh || { log "Failed to set execute permission on scripts"; exit 1; }
 chmod -R u+w "$MISP_AIRGAP_PATH/images/" || { log "Failed to set execute permission on images dir"; exit 1; }
 
+# Add user to lxd group
+sudo usermod -aG lxd updatetracker || { log "Failed to add user updatetracker to lxd group"; exit 1; }
+mkdir -p /home/updatetracker || { log "Failed to create directory /home/updatetracker"; exit 1; }
+
+# Setup GPG key
+KEY_NAME=$(jq -r '.NAME' "$SIGN_CONFIG_FILE")
+KEY_EMAIL=$(jq -r '.EMAIL' "$SIGN_CONFIG_FILE")
+KEY_COMMENT=$(jq -r '.COMMENT' "$SIGN_CONFIG_FILE")
+KEY_EXPIRE=$(jq -r '.EXPIRE_DATE' "$SIGN_CONFIG_FILE")
+KEY_PASSPHRASE=$(jq -r '.PASSPHRASE' "$SIGN_CONFIG_FILE")
+
+cat > "$BATCH_FILE" <<EOF
+%echo Generating a basic OpenPGP key
+Key-Type: default
+Subkey-Type: default
+Name-Real: ${KEY_NAME}
+Name-Comment: ${KEY_COMMENT}
+Name-Email: ${KEY_EMAIL}
+Expire-Date: ${KEY_EXPIRE}
+Passphrase: ${KEY_PASSPHRASE}
+%commit
+%echo done
+EOF
+
+sudo -u updatetracker gpg --batch --generate-key "$BATCH_FILE" || { log "Failed to generate GPG key"; exit 1; }
+rm "$BATCH_FILE" || { log "Failed to remove batch file"; exit 1; }
 
 # Copy service file
 if [[ -f "$SERVICE_FILE" ]]; then

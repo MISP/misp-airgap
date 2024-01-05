@@ -1,47 +1,30 @@
 {
     "check_interval": 600,
-    "sign": true,
-    "commit_based": [
+    "repos": [
         {
-            "type": "misp",
+            "name": "MISP",
+            "id": "MISP/MISP",
+            "mode": "commits",
             "args": [
                 "--misp",
-                "--misp-name misp",
-                "--outputdir /opt/misp_airgap/images/"
+                "--misp-name",
+                "MISP",
+                "--outputdir",
+                "/opt/misp_airgap/images/",
+                "-s"
             ]
         },
         {
-            "type": "modules",
+            "name": "MISP-modules",
+            "id": "MISP/misp-modules",
+            "mode": "commits",
             "args": [
                 "--modules",
-                "--modules-name modules",
-                "--outputdir /opt/misp_airgap/images/"
-            ]
-        },
-        {
-            "type": "Chinin0k/Update",
-            "args": [
-                "--redis",
-                "--redis-name test",
-                "--outputdir /opt/misp_airgap/images/"
-            ]
-        }
-    ],
-    "tag_based": [
-        {
-            "type": "redis",
-            "args": [
-                "--redis",
-                "--redis-name redis",
-                "--outputdir /opt/misp_airgap/images/"
-            ]
-        },
-        {
-            "type": "mysql",
-            "args": [
-                "--mysql",
-                "--mysql-name mysql",
-                "--outputdir /opt/misp_airgap/images/"
+                "--modules-name",
+                "Modules",
+                "--outputdir",
+                "/opt/misp_airgap/images/",
+                "-s"
             ]
         }
     ]
