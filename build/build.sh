@@ -114,6 +114,10 @@ installMISP(){
 
     sleep 2
     lxc exec "$container_name" -- apt update
+    lxc exec "$container_name" -- apt install debconf-utils -y    
+    lxc exec "$container_name" -- bash -c "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections"
+    lxc exec "$container_name" -- bash -c "echo 'debconf debconf/priority select critical' | debconf-set-selections"
+
     # Add MISP user
     lxc exec "$container_name" -- useradd -m -s /bin/bash "misp"
 
@@ -128,7 +132,7 @@ installMISP(){
 
     lxc exec "$container_name" -- bash -c "echo 'misp ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/misp"
     lxc exec "$container_name" -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/main/build/AIRGAP_INSTALL.sh
-    lxc exec "$container_name" -- sudo -u "misp" -H sh -c "bash /tmp/AIRGAP_INSTALL.sh -c"
+    lxc exec "$container_name" -- sudo -u "misp" -H sh -c "bash /tmp/AIRGAP_INSTALL.sh -c -u"
 }
 
 waitForContainer() {
@@ -149,7 +153,7 @@ waitForContainer() {
 cleanupProject(){
     local project="$1"
 
-    echo "Starting cleanup ..."
+    okay "Starting cleanup ..."
     echo "Deleting container in project"
     for container in $(lxc query "/1.0/containers?recursion=1&project=${project}" | jq .[].name -r); do
         lxc delete --project "${project}" -f "${container}"
@@ -542,6 +546,7 @@ if $MISP; then
     # Push info to container
     addMISPInstallerInfo "$MISP_CONTAINER"
     # Create image
+    okay "Creating MISP image ... "
     misp_image_name=$(createMISPImage "$MISP_CONTAINER" "$MISP_IMAGE")
     if $SIGN; then
         sign $misp_image_name
@@ -639,6 +644,7 @@ if $MODULES; then
         cleanup
         exit 1
     fi
+    okay "Creating Modules image ... "
     mysql_image_name=$(createModulesImage $MODULES_CONTAINER $MODULES_IMAGE)
     if $SIGN; then
         sign $mysql_image_name

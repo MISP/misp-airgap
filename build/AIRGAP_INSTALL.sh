@@ -51,7 +51,13 @@ MISPvars () {
   # checkAptLock alias to make sure people are not confused when blindly copy pasting blobs of code
   alias checkAptLock="echo 'Function used in Installer to make sure apt is not locked'"
 
-  CAKE="${PATH_TO_MISP}/app/Console/cake"
+  # php.ini configuration
+  upload_max_filesize="50M"
+  post_max_size="50M"
+  max_execution_time="300"
+  memory_limit="2048M"
+  session0sid_length="32"
+  session0use_strict_mode="1"
 
   # sudo config to run $LUSER commands
   if [[ "$(groups ${MISP_USER} |grep -o 'staff')" == "staff" ]]; then
