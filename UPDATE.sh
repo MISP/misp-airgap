@@ -127,12 +127,11 @@ usage() {
     echo "  - The script updates specified containers to new versions using provided images."
     echo "  - Mandatory fields must be specified for each component you wish to update."
     echo "  - Use only alphanumeric characters and hyphens for container names."
-    exit 1
 }
 
 
 nonInteractiveConfig(){
-    VALID_ARGS=$(getopt -o h:ap: --long help,passwd:,update-misp,misp-image:,current-misp:,new-misp:,all,update-mysql,mysql-image:,new-mysql:,update-redis,redis-image:,new-redis:,update-modules,modules-image:,new-modules:  -- "$@")
+    VALID_ARGS=$(getopt -o hap: --long help,passwd:,update-misp,misp-image:,current-misp:,new-misp:,all,update-mysql,mysql-image:,new-mysql:,update-redis,redis-image:,new-redis:,update-modules,modules-image:,new-modules:  -- "$@")
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
@@ -143,7 +142,6 @@ nonInteractiveConfig(){
             -h | --help)
                 usage
                 exit 0
-                shift 
                 ;;
             -p | --passswd)
                 MYSQL_ROOT_PASSWORD=$2
@@ -980,6 +978,7 @@ interactiveConfig(){
 # main
 if [ -z "$1" ]; then
     usage
+    exit 0
 fi
 checkSoftwareDependencies
 setVars

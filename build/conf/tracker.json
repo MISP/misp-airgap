@@ -1,0 +1,31 @@
+{
+    "check_interval": 600,
+    "repos": [
+        {
+            "name": "MISP",
+            "id": "MISP/MISP",
+            "mode": "commits",
+            "args": [
+                "--misp",
+                "--misp-name",
+                "MISP",
+                "--outputdir",
+                "/opt/misp_airgap/images/",
+                "-s"
+            ]
+        },
+        {
+            "name": "MISP-modules",
+            "id": "MISP/misp-modules",
+            "mode": "commits",
+            "args": [
+                "--modules",
+                "--modules-name",
+                "Modules",
+                "--outputdir",
+                "/opt/misp_airgap/images/",
+                "-s"
+            ]
+        }
+    ]
+}

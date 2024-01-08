@@ -744,8 +744,8 @@ editMySQLConf(){
 
 configureMySQL(){
     ## Add user + DB
-    lxc exec $MYSQL_CONTAINER -- mysql -u root -e "CREATE DATABASE $MYSQL_DATABASE;"
-    lxc exec $MYSQL_CONTAINER -- mysql -u root -e "GRANT ALL PRIVILEGES ON $MYSQL_DATABASE.* TO '$MYSQL_USER'@'$MISP_CONTAINER.lxd' IDENTIFIED BY '$MYSQL_PASSWORD';"
+    lxc exec $MYSQL_CONTAINER -- mariadb -u root -e "CREATE DATABASE $MYSQL_DATABASE;"
+    lxc exec $MYSQL_CONTAINER -- mariadb -u root -e "GRANT ALL PRIVILEGES ON $MYSQL_DATABASE.* TO '$MYSQL_USER'@'$MISP_CONTAINER.lxd' IDENTIFIED BY '$MYSQL_PASSWORD';"
 
     ## Configure remote access
     lxc exec $MYSQL_CONTAINER -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
@@ -760,11 +760,11 @@ configureMySQL(){
     editMySQLConf "innodb_change_buffering" "$INNODB_CHANGE_BUFFERING" "$MYSQL_CONTAINER"
     editMySQLConf "innodb_buffer_pool_size" "$INNODB_BUFFER_POOL_SIZE" "$MYSQL_CONTAINER"
 
-    lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mysql
+    lxc exec $MYSQL_CONTAINER -- sudo systemctl restart mariadb
 
     ## secure MySQL installation
-    lxc exec $MYSQL_CONTAINER -- mysqladmin -u root password "$MYSQL_ROOT_PASSWORD"
-    lxc exec $MYSQL_CONTAINER -- mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
+    lxc exec $MYSQL_CONTAINER -- mariadb-admin -u root password "$MYSQL_ROOT_PASSWORD"
+    lxc exec $MYSQL_CONTAINER -- mariadb -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
     DELETE FROM mysql.user WHERE User='';
     DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
     DROP DATABASE IF EXISTS test;
@@ -1022,7 +1022,6 @@ usage() {
     echo "Note:"
     echo "  - This script sets up and configures an LXD project environment for MISP."
     echo "  - Use only alphanumeric characters and hyphens for container names and partitions."
-    exit 1
 }
 
 checkForDefault(){
@@ -1050,6 +1049,7 @@ nonInteractiveConfig(){
         case "$1" in
             -h | --help)
                 usage
+                exit 0
                 ;;
             -p | --production)
                 prod="y"
@@ -1219,6 +1219,7 @@ cleanup(){
 # Main
 if [ -z "$1" ]; then
     usage
+    exit 0
 fi
 checkSoftwareDependencies
 setDefaultArgs

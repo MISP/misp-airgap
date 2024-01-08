@@ -1,0 +1,13 @@
+[Unit]
+Description=Update tracker for MISP airgap components
+After=network.target
+
+[Service]
+Type=simple
+User=updatetracker
+ExecStart=/usr/bin/python3 /opt/misp_airgap/build/update_tracker.py
+Restart=on-failure
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
