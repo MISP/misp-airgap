@@ -46,16 +46,21 @@ After installation, proceed with the following steps:
 
    TODO
 
+2. **Verify Signature**
+    ```bash
+    gpg --verify /path/to/file.sig /path/to/file
+    ``` 
+
 2. **Transfer images and repo to air-gapped system**:
 
    Transfer the exported images and the whole `deploy` directory to your air gapped system.
 
 ### Interactive Mode
 
-Run the script with the `--interactive` flag to enter the interactive mode, which guides you through the configuration process:
+Run the `INSTALL.sh` script with the `--interactive` flag to enter the interactive mode, which guides you through the configuration process:
 
 ```bash
-bash install.sh --interactive
+bash INSTALL.sh --interactive
 ```
 
 ### Non-Interactive Mode
@@ -63,7 +68,7 @@ For a non-interactive setup, use command-line arguments to set configurations:
 
 **Example:**
 ```bash
-bash install.sh --misp-image <path-to-image> --mysql-image <path-to-image> --redis-image <path-to-image> --no-modules
+bash INSTALL.sh --misp-image <path-to-image> --mysql-image <path-to-image> --redis-image <path-to-image> --no-modules
 ```
 
 Below is the table summarizing the script flags and variables:
@@ -99,16 +104,21 @@ After completing these steps, MISP should be up and running. Access the MISP web
 
    TODO
 
-2. **Transfer images to air-gapped system**:
+2. **Verify Signature**
+    ```bash
+    gpg --verify /path/to/file.sig /path/to/file
+    ``` 
+
+3. **Transfer images to air-gapped system**:
 
    Transfer the exported images to your air gapped system.
 
 ### Interactive Mode
 
-Run the script with the `--interactive` flag to enter the interactive mode, which guides you through the configuration process:
+Run the `UPDATE.sh` script with the `--interactive` flag to enter the interactive mode, which guides you through the configuration process:
 
 ```bash
-bash update.sh --interactive
+bash UPDATE.sh --interactive
 ```
 
 ### Non-Interactive Mode
@@ -116,7 +126,7 @@ For a non-interactive setup, use command-line arguments to set configurations:
 
 **Example:**
 ```bash
-bash update_misp.sh --current-misp <current-misp-container> --update-misp -p <mysql-root-pwd> --misp-image <path-to-image>
+bash UPDATE.sh --current-misp <current-misp-container> --update-misp -p <mysql-root-pwd> --misp-image <path-to-image>
 ```
 
 Below is the table summarizing the script flags and variables:
@@ -143,4 +153,33 @@ Below is the table summarizing the script flags and variables:
 
 
 ## Build
+**Requirements**:
 
+- jq 1.6
+- curl 7.81.0
+- gpg (GnuPG) 2.2.27
+
+You can build the images using the build script:
+```bash
+bash build.sh [OPTIONS]
+```
+
+Below is the table summarizing the script options:
+
+| Variable        | Default Value | Flag                        | Description                                      |
+| --------------- | ------------- | --------------------------- | ------------------------------------------------ |
+| `MISP`          | `false`       | `--misp`                    | Create a MISP image.                             |
+| `MYSQL`         | `false`       | `--mysql`                   | Create a MySQL image.                            |
+| `REDIS`         | `false`       | `--redis`                   | Create a Redis image.                            |
+| `MODULES`       | `false`       | `--modules`                 | Create a Modules image.                          |
+| `MISP_IMAGE`    | `MISP`        | `--misp-name <name>`        | Specify a custom name for the MISP image.        |
+| `MYSQL_IMAGE`   | `MySQL`       | `--mysql-name <name>`       | Specify a custom name for the MySQL image.       |
+| `REDIS_IMAGE`   | `Redis`       | `--redis-name <name>`       | Specify a custom name for the Redis image.       |
+| `MODULES_IMAGE` | `Modules`     | `--modules-name <name>`     | Specify a custom name for the Modules image.     |
+| `REDIS_VERSION` | N/A           | `--redis-version <version>` | Specify a Redis version to build.                |
+| `MYSQL_VERSION` | N/A           | `--mysql-version <version>` | Specify a MySQL version to build.                |
+| `OUTPUTDIR`     | N/A           | `-o`, `--outputdir <dir>`   | Specify the output directory for created images. |
+| `SIGN`          | `false`       | `-s`, `--sign`              | Sign the created images.                         |
+
+### Signing
+When the `-s` or `--sign` flag is used, the `build.sh` script will sign the created images using GPG. To utilize this feature, first configure your signing keys in the `/conf/sign.json` file. If no key with the specified ID is found in your GPG keyring, the script will automatically generate a new key. 
