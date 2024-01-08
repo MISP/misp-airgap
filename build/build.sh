@@ -25,9 +25,9 @@ setVars(){
     REDIS_CONTAINER=$(generateName "redis")
     MODULES_CONTAINER=$(generateName "modules")
     UBUNTU="ubuntu:22.04"
-    BUILD_REDIS_SOURCE=false
-    BUILD_MYSQL_SOURCE=false
-    REDIS_SERVICE_FILE="$PATH_TO_BUILD/conf/redis.service"
+    BUILD_REDIS_VERSION=false
+    BUILD_MYSQL_VERSION=false
+    REDIS_SERVICE_FILE="$PATH_TO_BUILD/conf/redis-server.service"
 }
 
 setDefaultArgs(){
@@ -249,8 +249,12 @@ getMysqlVersion() {
     local container=$1
     local input
     local version
-    input=$(lxc exec $container -- mysql --version) 
-    version=$(echo "$input" | grep -oP 'Distrib \K[^,]+' || echo "Version not found")
+    input=$(lxc exec $container -- mariadb --version)
+    if $BUILD_MYSQL_VERSION; then
+        version=$(echo "$input" | grep -oP 'mariadb from \K[0-9]+\.[0-9]+\.[0-9]+(?=-MariaDB)' || echo "Version not found")
+    else
+        version=$(echo "$input" | grep -oP 'Distrib \K[^,]+(?=-MariaDB)' || echo "Version not found")
+    fi
     echo "$version"
 }
 
@@ -326,13 +330,26 @@ usage() {
     echo "Usage: $0 [OPTIONS]"
     echo
     echo "Options:"
-    echo "  -h, --help       Show this help message and exit."
-    echo "  -n, --name       Specify the name of the image to create. Default is 'misp'."
-    echo "  -o, --outputdir  Specify the output directory for the created image. Default is '/opt/misp_airgap/'."
+    echo -e "  -h, --help                     Show this help message and exit."
+    echo -e "  --misp                         Create a MISP image."
+    echo -e "  --mysql                        Create a MySQL image."
+    echo -e "  --redis                        Create a Redis image."
+    echo -e "  --modules                      Create a Modules image."
+    echo -e "  --misp-name NAME               Specify a custom name for the MISP image."
+    echo -e "  --mysql-name NAME              Specify a custom name for the MySQL image."
+    echo -e "  --redis-name NAME              Specify a custom name for the Redis image."
+    echo -e "  --modules-name NAME            Specify a custom name for the Modules image."
+    echo -e "  --redis-version VERSION        Specify a Redis version to build."
+    echo -e "  --mysql-version VERSION        Specify a MySQL version to build."
+    echo -e "  -o, --outputdir DIRECTORY      Specify the output directory for created images."
+    echo -e "  -s, --sign                     Sign the created images."
     echo
     echo "Description:"
-    echo "  This script sets up a container for MISP, installs MISP within it,"
-    echo "  and then creates an image of this installation."
+    echo "  This script facilitates the setup and creation of container images for"
+    echo "  MISP (Malware Information Sharing Platform), MySQL, Redis, and MISP modules."
+    echo "  It allows customizing image names, specifying versions, and output directories."
+    echo "  Additionally, it can sign the created images for verification purposes."
+    echo
 }
 
 get_redis_version() {
@@ -445,12 +462,12 @@ while [ $# -gt 0 ]; do
             ;;
         --redis-version)
             REDIS_VERSION=$2
-            BUILD_REDIS_SOURCE=true
+            BUILD_REDIS_VERSION=true
             shift 2
             ;;
         --mysql-version)
             MYSQL_VERSION=$2
-            BUILD_MYSQL_SOURCE=true
+            BUILD_MYSQL_VERSION=true
             shift 2
             ;;
         -o | --outputdir)
@@ -513,22 +530,19 @@ fi
 if $MYSQL; then
     lxc launch $UBUNTU "$MYSQL_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$MYSQL_CONTAINER"
-    # Install MySQL
-    # if $BUILD_MYSQL_SOURCE; then
-    #     lxc exec $MYSQL_CONTAINER -- apt update
-    #     lxc exec $MYSQL_CONTAINER -- apt install -y zlib1g-dev build-essential cmake libncurses5-dev libssl-dev bison
-    #     lxc exec $MYSQL_CONTAINER -- wget https://downloads.mariadb.org/rest-api/mariadb/$MYSQL_VERSION/mariadb-$MYSQL_VERSION.tar.gz
-    #     lxc exec $MYSQL_CONTAINER -- tar xzf 
-    #     cmake .
-    #     make
-    #     make install
-    # sudo groupadd mysql
-    # sudo useradd -r -g mysql -s /bin/false mysql
-    # sudo /path/to/mysql_install_db --user=mysql
-    # else
-    lxc exec $MYSQL_CONTAINER -- apt update
-    lxc exec $MYSQL_CONTAINER -- apt install -y mariadb-server
-    # fi
+    Install MySQL
+    if $BUILD_MYSQL_VERSION; then
+        lxc exec $MYSQL_CONTAINER -- apt update
+        lxc exec $MYSQL_CONTAINER -- apt install -y apt-transport-https curl lsb-release
+        lxc exec $MYSQL_CONTAINER -- mkdir -p /etc/apt/keyrings
+        lxc exec $MYSQL_CONTAINER -- curl -o /etc/apt/keyrings/mariadb-keyring.pgp 'https://mariadb.org/mariadb_release_signing_key.pgp'
+        lxc exec $MYSQL_CONTAINER -- bash -c "echo 'deb [signed-by=/etc/apt/keyrings/mariadb-keyring.pgp] https://mirror.23m.com/mariadb/repo/$MYSQL_VERSION/ubuntu $(lsb_release -cs) main' > /etc/apt/sources.list.d/mariadb.list"
+        lxc exec $MYSQL_CONTAINER -- apt update
+        lxc exec $MYSQL_CONTAINER -- apt install -y mariadb-server
+    else
+        lxc exec $MYSQL_CONTAINER -- apt update
+        lxc exec $MYSQL_CONTAINER -- apt install -y mariadb-server
+    fi
     mysql_version=$(getMysqlVersion $MYSQL_CONTAINER)
     # Create Image
     lxc stop $MYSQL_CONTAINER
@@ -547,7 +561,7 @@ if $REDIS; then
     lxc launch $UBUNTU "$REDIS_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$REDIS_CONTAINER"
 
-    if $BUILD_REDIS_SOURCE; then
+    if $BUILD_REDIS_VERSION; then
         # Install Redis
         lxc exec $REDIS_CONTAINER -- apt update
         lxc exec $REDIS_CONTAINER -- apt install -y wget build-essential tcl
@@ -558,14 +572,20 @@ if $REDIS; then
         # Create redis service
         lxc exec $REDIS_CONTAINER -- mkdir -p /etc/redis
         lxc exec $REDIS_CONTAINER --cwd=/root/redis-$REDIS_VERSION -- cp redis.conf /etc/redis/redis.conf
-        lxc file push $REDIS_SERVICE_FILE $REDIS_CONTAINER/etc/systemd/system/redis.service -v
+        lxc exec $REDIS_CONTAINER -- sed -i 's|^dir \./|dir /var/lib/redis|' /etc/redis/redis.conf
+        lxc exec $REDIS_CONTAINER -- sed -i 's|^pidfile /var/run/redis_6379.pid|pidfile /var/run/redis/redis-server.pid|' /etc/redis/redis.conf
+        lxc exec $REDIS_CONTAINER -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/redis/redis.conf
+        lxc file push $REDIS_SERVICE_FILE $REDIS_CONTAINER/etc/systemd/system/redis-server.service -v
         lxc exec $REDIS_CONTAINER -- adduser --system --group --no-create-home redis
         lxc exec $REDIS_CONTAINER -- mkdir -p /var/lib/redis
         lxc exec $REDIS_CONTAINER -- chown redis:redis /var/lib/redis
         lxc exec $REDIS_CONTAINER -- chmod 770 /var/lib/redis
+        lxc exec $REDIS_CONTAINER -- mkdir -p /var/run/redis
+        lxc exec $REDIS_CONTAINER -- chown redis:redis /var/run/redis
+        lxc exec $REDIS_CONTAINER -- chmod 770 /var/run/redis
         lxc exec $REDIS_CONTAINER -- systemctl daemon-reload
-        lxc exec $REDIS_CONTAINER -- systemctl enable redis
-        lxc exec $REDIS_CONTAINER -- systemctl start redis
+        lxc exec $REDIS_CONTAINER -- systemctl enable redis-server
+        lxc exec $REDIS_CONTAINER -- systemctl start redis-server
     else
         lxc exec $REDIS_CONTAINER -- apt update 
         lxc exec $REDIS_CONTAINER -- apt install redis-server -y
