@@ -382,8 +382,30 @@ sign() {
 
     # Check if the GPG key is available
     if ! gpg --list-keys | grep -q $GPG_KEY_ID; then
-        error "GPG key not found: $GPG_KEY_ID"
-        exit 1
+        warn "GPG key not found: $GPG_KEY_ID. Create new key."
+        # Setup GPG key
+        KEY_NAME=$(jq -r '.NAME' "$SIGN_CONFIG_FILE")
+        KEY_EMAIL=$(jq -r '.EMAIL' "$SIGN_CONFIG_FILE")
+        KEY_COMMENT=$(jq -r '.COMMENT' "$SIGN_CONFIG_FILE")
+        KEY_EXPIRE=$(jq -r '.EXPIRE_DATE' "$SIGN_CONFIG_FILE")
+        KEY_PASSPHRASE=$(jq -r '.PASSPHRASE' "$SIGN_CONFIG_FILE")
+        BATCH_FILE=$(mktemp -d)/batch
+
+        cat > "$BATCH_FILE" <<EOF
+%echo Generating a basic OpenPGP key
+Key-Type: default
+Subkey-Type: default
+Name-Real: ${KEY_NAME}
+Name-Comment: ${KEY_COMMENT}
+Name-Email: ${KEY_EMAIL}
+Expire-Date: ${KEY_EXPIRE}
+Passphrase: ${KEY_PASSPHRASE}
+%commit
+%echo done
+EOF
+
+        gpg --batch --generate-key "$BATCH_FILE" || { log "Failed to generate GPG key"; exit 1; }
+        rm -r "$BATCH_FILE" || { log "Failed to remove batch file"; exit 1; }
     fi
 
     # Create a directory for the file and its signature
@@ -514,8 +536,7 @@ lxc storage create "$STORAGE_POOL_NAME" "dir"
 lxc network create "$NETWORK_NAME"
 
 if $MISP; then
-    # lxc launch $UBUNTU "$MISP_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
-    lxc launch ubuntu:20.04 "$MISP_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
+    lxc launch $UBUNTU "$MISP_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$MISP_CONTAINER"
     installMISP "$MISP_CONTAINER"
     # Push info to container
