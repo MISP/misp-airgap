@@ -44,6 +44,8 @@ chmod -R u+w "$MISP_AIRGAP_PATH/images/" || { log "Failed to set execute permiss
 # Add user to lxd group
 sudo usermod -aG lxd updatetracker || { log "Failed to add user updatetracker to lxd group"; exit 1; }
 mkdir -p /home/updatetracker || { log "Failed to create directory /home/updatetracker"; exit 1; }
+chown -R updatetracker: "/home/updatetracker" || { log "Failed to change ownership"; exit 1; }
+chmod -R u+w "/home/updatetracker" || { log "Failed to set execute permission on home dir"; exit 1; }
 
 # Setup GPG key
 KEY_NAME=$(jq -r '.NAME' "$SIGN_CONFIG_FILE")
