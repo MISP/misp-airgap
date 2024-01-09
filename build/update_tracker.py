@@ -3,7 +3,7 @@ import requests
 import subprocess
 import re
 from time import sleep
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 class Repo:
     """Base class for repository tracking and update checking."""
@@ -40,7 +40,7 @@ class GitHub(Repo):
         super().__init__(id, args)
         self.mode = mode
 
-    def _get_latest_update(self) -> Optional[Dict[str, Any]]:
+    def _get_latest_update(self) -> Optional[str]:
         print(f"Fetching {self.mode} for {self.id}")
         url=f'https://api.github.com/repos/{self.id}/{self.mode}'
         response = requests.get(url)
@@ -56,7 +56,7 @@ class APT(Repo):
     def __init__(self, id: str, args: List[str]) -> None:
         super().__init__(id, args)
 
-    def _get_latest_update(self) -> str:
+    def _get_latest_update(self) -> Optional[str]:
         try:
             cmd = ["apt-cache", "policy", self.id]
             print (f"Running {cmd}")
