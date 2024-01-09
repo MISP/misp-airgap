@@ -1,6 +1,6 @@
 {
     "check_interval": 600,
-    "repos": [
+    "github": [
         {
             "name": "MISP",
             "id": "MISP/MISP",
@@ -22,6 +22,32 @@
                 "--modules",
                 "--modules-name",
                 "Modules",
+                "--outputdir",
+                "/opt/misp_airgap/images/",
+                "-s"
+            ]
+        }
+    ],
+    "apt": [
+        {
+            "name": "MySQL",
+            "id": "mariadb-server",
+            "args": [
+                "--mysql",
+                "--mysql-name",
+                "MySQL",
+                "--outputdir",
+                "/opt/misp_airgap/images/",
+                "-s"
+            ]
+        },
+        {
+            "name": "Redis",
+            "id": "redis-server",
+            "args": [
+                "--redis",
+                "--redis-name",
+                "Redis",
                 "--outputdir",
                 "/opt/misp_airgap/images/",
                 "-s"
