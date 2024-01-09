@@ -183,3 +183,46 @@ Below is the table summarizing the script options:
 
 ### Signing
 When the `-s` or `--sign` flag is used, the `build.sh` script will sign the created images using GPG. To utilize this feature, first configure your signing keys in the `/conf/sign.json` file. If no key with the specified ID is found in your GPG keyring, the script will automatically generate a new key. 
+
+### Running image creation with systemd
+
+This section describes how to run the image creation process as a systemd service on a Linux system. The service is designed to periodically check for updates in specified GitHub repositories and execute an image creation process using the `build.sh` script if new updates are found.
+
+**Prerequisites**
+
+- Linux system with systemd.
+- Python 3 and the requests module installed.
+- Access to GitHub repositories (internet connection required).
+
+**Config**
+
+Edit the `tracker.json` configuration file in `build/conf/` to specify the GitHub repositories to track, the build arguments, and the check interval. 
+
+If your build process requires GPG signing, edit the `sign.json` configuration file in `build/conf/`.
+
+**Setup**
+
+To setup the service run the `setup.sh` script in the `systemd/` directory. This script performs several tasks:
+
+- Creates a dedicated user for the service.
+- Copies necessary files to appropriate locations.
+- Sets required permissions.
+- Automatically configures and enables the systemd service.
+
+**Monitoring**
+
+To check the status of the service, use:
+```bash
+systemctl status updatetracker.service
+```
+For debugging or monitoring, access the service logs with:
+```bash
+journalctl -u updatetracker.service
+```
+
+**Modifying**
+
+If you need to modify the service (e.g., changing the repositories to track or the check interval), update the `tracker.json` file in `/opt/misp_airgap/build/conf/` and restart the service:
+```bash
+systemctl restart updatetracker.service
+```
