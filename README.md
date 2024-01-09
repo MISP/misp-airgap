@@ -184,13 +184,13 @@ Below is the table summarizing the script options:
 ### Signing
 When the `-s` or `--sign` flag is used, the `build.sh` script will sign the created images using GPG. To utilize this feature, first configure your signing keys in the `/conf/sign.json` file. If no key with the specified ID is found in your GPG keyring, the script will automatically generate a new key. 
 
-### Running image creation with systemd
+### Running Image Creation with systemd
 
 This section describes how to run the image creation process as a systemd service on a Linux system. The service is designed to periodically check for updates in specified GitHub repositories and execute an image creation process using the `build.sh` script if new updates are found.
 
 **Prerequisites**
 
-- Linux system with systemd.
+- Ubuntu 22.04 system with systemd.
 - Python 3 and the requests module installed.
 - Access to GitHub repositories (internet connection required).
 
