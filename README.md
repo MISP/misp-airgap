@@ -158,6 +158,8 @@ Below is the table summarizing the script flags and variables:
 
 
 ## Build
+If you want to build the images yourself, you can use the `build.sh` script in the `build/` directory. This is completely optional, as the images are already built and available for download. 
+
 **Requirements**:
 
 - jq 1.6
