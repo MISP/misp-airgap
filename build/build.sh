@@ -437,6 +437,15 @@ EOF
     popd || exit
 }
 
+startMessage(){
+    echo "Starting MISP-airgap build script ..."
+}
+
+successMessage(){
+    component=$1
+    echo "$component image created successfully."
+}
+
 # Main
 checkSoftwareDependencies "${DEPEDENCIES[@]}"
 setVars
@@ -531,6 +540,8 @@ if ! $MISP && ! $MYSQL && ! $REDIS && ! $MODULES; then
     exit 1
 fi
 
+startMessage
+
 trap cleanup EXIT
 
 # Project setup
@@ -551,6 +562,7 @@ if $MISP; then
     if $SIGN; then
         sign $misp_image_name
     fi
+    successMessage "MISP"
 fi
 
 if $MYSQL; then
@@ -581,6 +593,7 @@ if $MYSQL; then
     if $SIGN; then
         sign $mysql_image_name
     fi
+    successMessage "MySQL"
 fi
 
 if $REDIS; then
@@ -629,6 +642,7 @@ if $REDIS; then
     if $SIGN; then
         sign $redis_image_name
     fi
+    successMessage "Redis"
 fi
 
 if $MODULES; then
@@ -649,5 +663,7 @@ if $MODULES; then
     if $SIGN; then
         sign $mysql_image_name
     fi
+    successMessage "Modules"
 fi
 
+okay "Build script finished successfully."
