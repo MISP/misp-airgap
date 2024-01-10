@@ -7,6 +7,9 @@ from time import sleep
 from typing import List, Optional
 from pathlib import Path
 
+BUILD_PATH = "/opt/misp_airgap/build"
+IMAGES_PATH = "/opt/misp_airgap/images"
+
 class Repo:
     """Base class for repository tracking and update checking."""
 
@@ -26,19 +29,40 @@ class Repo:
 
     def _get_latest_update(self):
         raise NotImplementedError
+    
+    def _save_state(self):
+        try:
+            with open(f'{BUILD_PATH}/systemd/state.json', 'r') as file:
+                states = json.load(file)
+        except FileNotFoundError:
+            states = {}
+
+        states[self.id] = self.last_seen_update
+
+        with open(f'{BUILD_PATH}/systemd/state.json', 'w') as file:
+            json.dump(states, file)
+        
+    def load_state(self):
+        try:
+            with open(f'{BUILD_PATH}/systemd/state.json', 'r') as file:
+                states = json.load(file)
+        except FileNotFoundError:
+            states = {}
+
+        self.last_seen_update = states.get(self.id, None)
 
     def build(self) -> None:
         if self._check_for_new_update():
             try:
-                cmd = ['/opt/misp_airgap/build/build.sh'] + self.args
+                cmd = [f'{BUILD_PATH}/build.sh'] + self.args
                 print(f"Running {cmd}")
                 result = subprocess.run(cmd, check=False)
                 if result.returncode != 0:
                     print(f"Failed to run {cmd} for {self.id}")
                     return
-                parent_directory = "/opt/misp_airgap/images"
-                most_recent_dir = max([Path(parent_directory).joinpath(d) for d in os.listdir(parent_directory) if Path(parent_directory).joinpath(d).is_dir()], key=os.path.getmtime)
-                os.symlink(most_recent_dir, f"/opt/misp_airgap/images/latest_{self.name}")
+                most_recent_dir = max([Path(IMAGES_PATH).joinpath(d) for d in os.listdir(IMAGES_PATH) if Path(IMAGES_PATH).joinpath(d).is_dir()], key=os.path.getmtime)
+                os.symlink(most_recent_dir, f"{IMAGES_PATH}/latest_{self.name}")
+                self._save_state()
             except Exception as e:
                 print(f"Failed to run {cmd} for {self.id}: {e}")
 
@@ -79,7 +103,7 @@ class APT(Repo):
             return None
 
 def main():
-    with open("/opt/misp_airgap/build/conf/tracker.json") as f:
+    with open(f'{BUILD_PATH}/conf/tracker.json') as f:
         config = json.load(f)
 
     repos = []
@@ -90,6 +114,9 @@ def main():
     for package in config["apt"]:
         aptpkg.append(APT(package["id"], package["args"], package["name"]))
     
+    for repo in repos + aptpkg:
+        repo.load_state()
+
     while True:
         for repo in repos:
             repo.build()
