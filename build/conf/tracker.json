@@ -1,5 +1,7 @@
 {
     "check_interval": 600,
+    "outputdir": "/opt/misp_airgap/images/",
+    "sign": true,
     "github": [
         {
             "name": "MISP",
@@ -8,10 +10,7 @@
             "args": [
                 "--misp",
                 "--misp-name",
-                "MISP",
-                "--outputdir",
-                "/opt/misp_airgap/images/",
-                "-s"
+                "MISP"
             ]
         },
         {
@@ -21,10 +20,7 @@
             "args": [
                 "--modules",
                 "--modules-name",
-                "Modules",
-                "--outputdir",
-                "/opt/misp_airgap/images/",
-                "-s"
+                "Modules"
             ]
         }
     ],
@@ -35,10 +31,7 @@
             "args": [
                 "--mysql",
                 "--mysql-name",
-                "MySQL",
-                "--outputdir",
-                "/opt/misp_airgap/images/",
-                "-s"
+                "MySQL"
             ]
         },
         {
@@ -47,10 +40,7 @@
             "args": [
                 "--redis",
                 "--redis-name",
-                "Redis",
-                "--outputdir",
-                "/opt/misp_airgap/images/",
-                "-s"
+                "Redis"
             ]
         }
     ]
