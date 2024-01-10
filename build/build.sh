@@ -414,11 +414,11 @@ EOF
 
     # Create a directory for the file and its signature
     # FILE_NAME="${file/.tar.gz/}"
-    SIGN_DIR="${OUTPUTDIR}${file/.tar.gz/}"
+    SIGN_DIR="${OUTPUTDIR}/${file/.tar.gz/}"
     mkdir -p "$SIGN_DIR"
 
     # Move the file to the new directory
-    mv "${OUTPUTDIR}${file}" "$SIGN_DIR"
+    mv "${OUTPUTDIR}/${file}" "$SIGN_DIR"
 
     # Change to the directory
     pushd "$SIGN_DIR" || exit

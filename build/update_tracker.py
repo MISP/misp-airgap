@@ -8,15 +8,15 @@ from typing import List, Optional
 from pathlib import Path
 
 BUILD_PATH = "/opt/misp_airgap/build"
-IMAGES_PATH = "/opt/misp_airgap/images"
 
 class Repo:
     """Base class for repository tracking and update checking."""
 
-    def __init__(self, id: str, args: List[str], name: str) -> None:
+    def __init__(self, id: str, args: List[str], name: str, outputdir: str) -> None:
         self.id = id
         self.args = args
         self.name = name
+        self.outputdir = outputdir
         self.last_seen_update = None
 
     def _check_for_new_update(self) -> bool:
@@ -54,15 +54,14 @@ class Repo:
     def build(self) -> None:
         if self._check_for_new_update():
             try:
-                cmd = [f'{BUILD_PATH}/build.sh'] + self.args
+                cmd = [f'{BUILD_PATH}/build.sh'] + self.args + ["-o", self.outputdir]
                 print(f"Running {cmd}")
                 result = subprocess.run(cmd, check=False)
                 if result.returncode != 0:
                     print(f"Failed to run {cmd} for {self.id}")
                     return
-                most_recent_dir = max([Path(IMAGES_PATH).joinpath(d) for d in os.listdir(IMAGES_PATH) if Path(IMAGES_PATH).joinpath(d).is_dir()], key=os.path.getmtime)
-                relative_path = Path(most_recent_dir).relative_to(Path(IMAGES_PATH))
-                os.symlink(relative_path, f"{IMAGES_PATH}/latest_{self.name}")
+                most_recent_dir = max((d for d in Path(self.outputdir).iterdir() if d.is_dir()), key=os.path.getctime, default=None)
+                os.symlink(most_recent_dir, f"{self.outputdir}/latest_{self.name}")
                 self._save_state()
             except Exception as e:
                 print(f"Failed to run {cmd} for {self.id}: {e}")
@@ -70,8 +69,8 @@ class Repo:
 class GitHub(Repo):
     """Class for tracking GitHub repositories."""
 
-    def __init__(self, id: str, mode: str, args: List[str], name: str) -> None:
-        super().__init__(id, args, name)
+    def __init__(self, id: str, mode: str, args: List[str], name: str, outputdir: str) -> None:
+        super().__init__(id, args, name, outputdir)
         self.mode = mode
 
     def _get_latest_update(self) -> Optional[str]:
@@ -87,8 +86,8 @@ class GitHub(Repo):
 class APT(Repo):
     """Class for tracking APT packages."""
 
-    def __init__(self, id: str, args: List[str], name: str) -> None:
-        super().__init__(id, args, name)
+    def __init__(self, id: str, args: List[str], name: str, outputdir: str) -> None:
+        super().__init__(id, args, name, outputdir)
 
     def _get_latest_update(self) -> Optional[str]:
         try:
@@ -109,19 +108,16 @@ def main():
 
     repos = []
     for repo in config["github"]:
-        repos.append(GitHub(repo["id"], repo["mode"], repo["args"] + ["-o", config["outputdir"]], repo["name"]))
+        repos.append(GitHub(repo["id"], repo["mode"], repo["args"], repo["name"], config["outputdir"]))
 
     aptpkg = []
     for package in config["apt"]:
-        aptpkg.append(APT(package["id"], package["args"] + ["-o", config["outputdir"]], package["name"]))
+        aptpkg.append(APT(package["id"], package["args"], package["name"], config["outputdir"]))
     
     for repo in repos + aptpkg:
         if config["sign"]:
             repo.args.append("-s")
         repo.load_state()
-
-    for repo in repos:
-        print (f"Tracking {repo.id} for {repo.args}")
 
     while True:
         for repo in repos:

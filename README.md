@@ -3,7 +3,7 @@
 ![MISP airgap](https://raw.githubusercontent.com/MISP/misp-airgap/d5d93af547c2d90c34f36469d6edaaa7b72e67a5/docs/logo/logo.png)
 
 
-MISP Air-Gapped is a project that facilitates the deployment and maintenance of [MISP](https://github.com/MISP/MISP), in air-gapped environments. It utilizes [LXD](https://ubuntu.com/lxd), a popular Linux containerization platform, to create and manage isolated containers for MISP and its associated databases.
+MISP Air-Gapped is a project that facilitates the deployment and maintenance of [MISP](https://github.com/MISP/MISP), in air-gapped environments. It utilizes [LXD](https://ubuntu.com/lxd), a popular Linux containerization platform, to create and manage isolated containers for MISP and its associated databases. Additionally, this approach is adaptable for standard networked environments, allowing for the deployment of MISP in LXD in a broader range of operational contexts.
 
 ## Key Features
 

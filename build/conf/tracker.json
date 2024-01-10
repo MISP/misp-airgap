@@ -1,6 +1,6 @@
 {
     "check_interval": 600,
-    "outputdir": "/opt/misp_airgap/images/",
+    "outputdir": "/opt/misp_airgap/images",
     "sign": true,
     "github": [
         {
