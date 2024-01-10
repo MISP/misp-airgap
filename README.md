@@ -203,7 +203,11 @@ This section describes how to run the image creation process as a systemd servic
 
 Edit the `tracker.json` configuration file in `build/conf/` to specify the GitHub repositories to track, the build arguments, and the check interval. 
 
-If your build process requires GPG signing, edit the `sign.json` configuration file in `build/conf/`.
+If your build process requires GPG signing, edit the `sign.json` configuration file in `build/conf/` by copying the template and modifying the default values:
+```bash
+cd ./build/conf
+cp sign.json.template sign.json
+```
 
 **Setup**
 
