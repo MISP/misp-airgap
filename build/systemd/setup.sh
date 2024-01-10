@@ -54,7 +54,8 @@ KEY_COMMENT=$(jq -r '.COMMENT' "$SIGN_CONFIG_FILE")
 KEY_EXPIRE=$(jq -r '.EXPIRE_DATE' "$SIGN_CONFIG_FILE")
 KEY_PASSPHRASE=$(jq -r '.PASSPHRASE' "$SIGN_CONFIG_FILE")
 
-cat > "$BATCH_FILE" <<EOF
+if ! sudo -u updatetracker bash -c "gpg --list-keys | grep -q $KEY_EMAIL"; then
+    cat > "$BATCH_FILE" <<EOF
 %echo Generating a basic OpenPGP key
 Key-Type: default
 Subkey-Type: default
@@ -67,8 +68,9 @@ Passphrase: ${KEY_PASSPHRASE}
 %echo done
 EOF
 
-sudo -u updatetracker gpg --batch --generate-key "$BATCH_FILE" || { log "Failed to generate GPG key"; exit 1; }
-rm "$BATCH_FILE" || { log "Failed to remove batch file"; exit 1; }
+    sudo -u updatetracker gpg --batch --generate-key "$BATCH_FILE" || { log "Failed to generate GPG key"; exit 1; }
+    rm "$BATCH_FILE" || { log "Failed to remove batch file"; exit 1; }
+fi
 
 # Copy service file
 if [[ -f "$SERVICE_FILE" ]]; then
