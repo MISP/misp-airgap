@@ -2,15 +2,18 @@ import json
 import requests
 import subprocess
 import re
+import os
 from time import sleep
 from typing import List, Optional
+from pathlib import Path
 
 class Repo:
     """Base class for repository tracking and update checking."""
 
-    def __init__(self, id: str, args: List[str]) -> None:
+    def __init__(self, id: str, args: List[str], name: str) -> None:
         self.id = id
         self.args = args
+        self.name = name
         self.last_seen_update = None
 
     def _check_for_new_update(self) -> bool:
@@ -29,15 +32,21 @@ class Repo:
             try:
                 cmd = ['/opt/misp_airgap/build/build.sh'] + self.args
                 print(f"Running {cmd}")
-                subprocess.run(cmd, check=True)
+                result = subprocess.run(cmd, check=False)
+                if result.returncode != 0:
+                    print(f"Failed to run {cmd} for {self.id}")
+                    return
+                parent_directory = "/opt/misp_airgap/images"
+                most_recent_dir = max([Path(parent_directory).joinpath(d) for d in os.listdir(parent_directory) if Path(parent_directory).joinpath(d).is_dir()], key=os.path.getmtime)
+                os.symlink(most_recent_dir, f"/opt/misp_airgap/images/latest_{self.name}")
             except Exception as e:
                 print(f"Failed to run {cmd} for {self.id}: {e}")
 
 class GitHub(Repo):
     """Class for tracking GitHub repositories."""
 
-    def __init__(self, id: str, mode: str, args: List[str]) -> None:
-        super().__init__(id, args)
+    def __init__(self, id: str, mode: str, args: List[str], name: str) -> None:
+        super().__init__(id, args, name)
         self.mode = mode
 
     def _get_latest_update(self) -> Optional[str]:
@@ -53,8 +62,8 @@ class GitHub(Repo):
 class APT(Repo):
     """Class for tracking APT packages."""
 
-    def __init__(self, id: str, args: List[str]) -> None:
-        super().__init__(id, args)
+    def __init__(self, id: str, args: List[str], name: str) -> None:
+        super().__init__(id, args, name)
 
     def _get_latest_update(self) -> Optional[str]:
         try:
@@ -75,11 +84,11 @@ def main():
 
     repos = []
     for repo in config["github"]:
-        repos.append(GitHub(repo["id"], repo["mode"], repo["args"]))
+        repos.append(GitHub(repo["id"], repo["mode"], repo["args"], repo["name"]))
 
     aptpkg = []
     for package in config["apt"]:
-        aptpkg.append(APT(package["id"], package["args"]))
+        aptpkg.append(APT(package["id"], package["args"], package["name"]))
     
     while True:
         for repo in repos:
