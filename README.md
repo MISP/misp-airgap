@@ -3,7 +3,7 @@
 ![MISP airgap](https://raw.githubusercontent.com/MISP/misp-airgap/d5d93af547c2d90c34f36469d6edaaa7b72e67a5/docs/logo/logo.png)
 
 
-MISP Air-Gapped is a project that facilitates the deployment and maintenance of [MISP](https://github.com/MISP/MISP), in air-gapped environments. It utilizes [LXD](https://ubuntu.com/lxd), a popular Linux containerization platform, to create and manage isolated containers for MISP and its associated databases. Additionally, this approach is adaptable for standard networked environments, allowing for the deployment of MISP in LXD in a broader range of operational contexts.
+MISP airgap is a project that facilitates the deployment and maintenance of [MISP](https://github.com/MISP/MISP), in air-gapped environments. It utilizes [LXD](https://ubuntu.com/lxd), a popular Linux containerization platform, to create and manage isolated containers for MISP and its associated databases. Additionally, this approach is adaptable for standard networked environments, allowing for the deployment of MISP in LXD in a broader range of operational contexts.
 
 ## Key Features
 
@@ -47,18 +47,31 @@ First, [install LXD](https://ubuntu.com/lxd/install) on your air-gapped host sys
 
 After installation, proceed with the following steps:
 
-1. **Pull Images**
+1. **Download Images**
 
-   TODO
+   You can download the images from the [MISP images page](https://images.misp-project.org/). It is recommended to use the latest version of the images. For a minimal air-gapped setup, you need the following images:
+   - `MISP`
+   - `MySQL`
+   - `Redis`
+  
+   If you want to use MISP Modules, you also need the `Modules` image.
 
 2. **Verify Signature**
+   
+   Download the signature file for the images you want to use. You can find the signature files in the same directory as the images. Verify the signature using GPG:
+
+   Import the MISP-airgap public key:
+    ```bash
+    gpg --import /path/to/misp-airgap.asc
+    ```
+   Verify the signature using GPG:
     ```bash
     gpg --verify /path/to/file.sig /path/to/file
     ``` 
 
-2. **Transfer images and repo to air-gapped system**:
+3. **Transfer images and repo to air-gapped system**:
 
-   Transfer the exported images and the whole `deploy` directory to your air gapped system.
+   Transfer the exported images and the whole repo to your air gapped system.
 
 ### Interactive Mode
 
@@ -105,11 +118,19 @@ Below is the table summarizing the script flags and variables:
 After completing these steps, MISP should be up and running. Access the MISP web interface by navigating to the IP address displayed in the terminal after the installation process is finished. Alternatively, you can identify the IP addresses of all running containers within the project by executing the command `lxc list`. 
 
 ## Update
-1. **Pull Images**
+1. **Download Images**
 
-   TODO
+   You need to dowload the images for the components you want to update. You can download the images from the [MISP images page](https://images.misp-project.org/). It is recommended to use the latest version of the images.
 
 2. **Verify Signature**
+     
+   Download the signature file for the images you want to use. You can find the signature files in the same directory as the images. Verify the signature using GPG:
+   
+   Import the MISP-airgap public key:
+    ```bash
+    gpg --import /path/to/misp-airgap.asc
+    ```
+   Verify the signature using GPG:
     ```bash
     gpg --verify /path/to/file.sig /path/to/file
     ``` 
