@@ -49,29 +49,31 @@ After installation, proceed with the following steps:
 
 1. **Download Images**
 
-   You can download the images from the [MISP images page](https://images.misp-project.org/). It is recommended to use the latest version of the images. For a minimal air-gapped setup, you need the following images:
-   - `MISP`
-   - `MySQL`
-   - `Redis`
-  
-   If you want to use MISP Modules, you also need the `Modules` image.
+    You can download the images from the [MISP images page](https://images.misp-project.org/). It is recommended to use the latest version of the images. For a minimal air-gapped setup, you need the following images:
+    - `MISP`
+    - `MySQL`
+    - `Redis`
+    
+    If you want to use MISP Modules, you also need the `Modules` image.
 
 2. **Verify Signature**
    
-   Download the signature file for the images you want to use. You can find the signature files in the same directory as the images. Verify the signature using GPG:
+    Download the signature file for the images you want to use. You can find the signature files in the same directory as the images. Verify the signature using GPG:
 
-   Import the MISP-airgap public key:
-    ```bash
-    gpg --import /path/to/misp-airgap.asc
-    ```
-   Verify the signature using GPG:
-    ```bash
-    gpg --verify /path/to/file.sig /path/to/file
-    ``` 
+    You can find the public key for verifying the images on CIRCL's [PGP key server](https://openpgp.circl.lu/pks/lookup?op=get&search=0xec1862fc82cdaf7aebabc002287b725897d881d2).
+
+    Import the MISP-airgap public key:
+      ```bash
+      gpg --import /path/to/misp-airgap.asc
+      ```
+    Verify the signature using GPG:
+      ```bash
+      gpg --verify /path/to/file.sig /path/to/file
+      ``` 
 
 3. **Transfer images and repo to air-gapped system**:
 
-   Transfer the exported images and the whole repo to your air gapped system.
+    Transfer the exported images and the whole repo to your air gapped system.
 
 ### Interactive Mode
 
@@ -120,24 +122,26 @@ After completing these steps, MISP should be up and running. Access the MISP web
 ## Update
 1. **Download Images**
 
-   You need to dowload the images for the components you want to update. You can download the images from the [MISP images page](https://images.misp-project.org/). It is recommended to use the latest version of the images.
+    You need to dowload the images for the components you want to update. You can download the images from the [MISP images page](https://images.misp-project.org/). It is recommended to use the latest version of the images.
 
 2. **Verify Signature**
-     
-   Download the signature file for the images you want to use. You can find the signature files in the same directory as the images. Verify the signature using GPG:
    
-   Import the MISP-airgap public key:
-    ```bash
-    gpg --import /path/to/misp-airgap.asc
-    ```
-   Verify the signature using GPG:
-    ```bash
-    gpg --verify /path/to/file.sig /path/to/file
-    ``` 
+    Download the signature file for the images you want to use. You can find the signature files in the same directory as the images. Verify the signature using GPG:
+
+    You can find the public key for verifying the images on CIRCL's [PGP key server](https://openpgp.circl.lu/pks/lookup?op=get&search=0xec1862fc82cdaf7aebabc002287b725897d881d2).
+
+    Import the MISP-airgap public key:
+      ```bash
+      gpg --import /path/to/misp-airgap.asc
+      ```
+    Verify the signature using GPG:
+      ```bash
+      gpg --verify /path/to/file.sig /path/to/file
+      ``` 
 
 3. **Transfer images to air-gapped system**:
 
-   Transfer the exported images to your air gapped system.
+    Transfer the exported images to your air gapped system.
 
 ### Interactive Mode
 
