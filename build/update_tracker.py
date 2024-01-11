@@ -62,6 +62,8 @@ class Repo:
                     return
                 most_recent_dir = max((d for d in Path(self.outputdir).iterdir() if d.is_dir()), key=os.path.getctime, default=None)
                 relative_path = most_recent_dir.relative_to(Path(self.outputdir))
+                if os.path.exists(f"{self.outputdir}/latest_{self.name}"):
+                    os.remove(f"{self.outputdir}/latest_{self.name}")
                 os.symlink(relative_path, f"{self.outputdir}/latest_{self.name}")
                 print(f"Created symlink {self.outputdir}/latest_{self.name} to {relative_path}")
                 self._save_state()
