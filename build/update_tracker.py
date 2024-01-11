@@ -61,7 +61,9 @@ class Repo:
                     print(f"Failed to run {cmd} for {self.id}")
                     return
                 most_recent_dir = max((d for d in Path(self.outputdir).iterdir() if d.is_dir()), key=os.path.getctime, default=None)
-                os.symlink(most_recent_dir, f"{self.outputdir}/latest_{self.name}")
+                relative_path = most_recent_dir.relative_to(Path(self.outputdir))
+                os.symlink(relative_path, f"{self.outputdir}/latest_{self.name}")
+                print(f"Created symlink {self.outputdir}/latest_{self.name} to {relative_path}")
                 self._save_state()
             except Exception as e:
                 print(f"Failed to run {cmd} for {self.id}: {e}")

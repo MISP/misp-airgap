@@ -220,6 +220,12 @@ To setup the service run the `setup.sh` script in the `systemd/` directory. This
 - Sets required permissions.
 - Automatically configures and enables the systemd service.
 
+To run the script, execute:
+```bash
+cd build/systemd 
+sudo bash setup.sh
+```
+
 **Monitoring**
 
 To check the status of the service, use:

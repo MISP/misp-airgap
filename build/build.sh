@@ -666,4 +666,4 @@ if $MODULES; then
     successMessage "Modules"
 fi
 
-okay "Build script finished successfully."
+echo "Build script finished successfully."
