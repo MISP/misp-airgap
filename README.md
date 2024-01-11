@@ -189,7 +189,12 @@ Below is the table summarizing the script options:
 | `SIGN`          | `false`       | `-s`, `--sign`              | Sign the created images.                         |
 
 ### Signing
-When the `-s` or `--sign` flag is used, the `build.sh` script will sign the created images using GPG. To utilize this feature, first configure your signing keys in the `/conf/sign.json` file. If no key with the specified ID is found in your GPG keyring, the script will automatically generate a new key. 
+When the `-s` or `--sign` flag is used, the `build.sh` script will sign the created images using GPG. To utilize this feature, first configure your signing keys in the `/conf/sign.json` file. You can use the provided template file as a starting point:
+```bash
+cd ./build/conf
+cp sign.json.template sign.json
+```
+If no key with the specified ID is found in your GPG keyring, the script will automatically generate a new key. 
 
 ### Running Image Creation with systemd
 
@@ -203,7 +208,11 @@ This section describes how to run the image creation process as a systemd servic
 
 **Config**
 
-Edit the `tracker.json` configuration file in `build/conf/` to specify the GitHub repositories to track, the build arguments, and the check interval. 
+Edit the `tracker.json` configuration file in `build/conf/` to specify the GitHub repositories to track, the build arguments, and the check interval. You can use the provided template file as a starting point:
+```bash
+cd ./build/conf
+cp tracker.json.template tracker.json
+``` 
 
 If your build process requires GPG signing, edit the `sign.json` configuration file in `build/conf/` by copying the template and modifying the default values:
 ```bash
