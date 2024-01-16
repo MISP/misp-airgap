@@ -277,3 +277,22 @@ If you need to modify the service (e.g., changing the repositories to track or t
 ```bash
 systemctl restart updatetracker.service
 ```
+Alternatively, you can use the `update.sh` script in the `systemd/` directory to automatically update the service configuration and restart the service:
+```bash
+sudo bash update.sh
+```
+This can be helpfull if there are changes to the scripts used by the service such as `build.sh` or `updatetracker.py`.
+
+
+*Alternative Method Using `update.sh` Script:*
+
+If your modifications include changes to the service's operational scripts (like `build.sh` or `updatetracker.py`), it's recommended to use the `update.sh` script. This script ensures that the service configuration is updated and the service is restarted to reflect the changes.
+
+To use the update.sh script:
+
+```bash
+cd /path/to/systemd/
+sudo bash update.sh
+```
+
+> Note: Using the update.sh script is especially useful for comprehensive updates, as it automates the process of applying configuration changes and restarting the service.
