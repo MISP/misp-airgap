@@ -113,10 +113,10 @@ installMISP(){
     local container_name="$1"
 
     sleep 2
+    lxc exec "$container_name" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
     lxc exec "$container_name" -- apt update
+    lxc exec "$container_name" -- apt upgrade -y
     lxc exec "$container_name" -- apt install debconf-utils -y    
-    lxc exec "$container_name" -- bash -c "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections"
-    lxc exec "$container_name" -- bash -c "echo 'debconf debconf/priority select critical' | debconf-set-selections"
 
     # Add MISP user
     lxc exec "$container_name" -- useradd -m -s /bin/bash "misp"
@@ -133,6 +133,7 @@ installMISP(){
     lxc exec "$container_name" -- bash -c "echo 'misp ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/misp"
     lxc exec "$container_name" -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/main/build/AIRGAP_INSTALL.sh
     lxc exec "$container_name" -- sudo -u "misp" -H sh -c "bash /tmp/AIRGAP_INSTALL.sh -c -u"
+    lxc exec "$container_name" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
 waitForContainer() {
@@ -272,26 +273,29 @@ getModulesCommitID(){
 installMISPModules(){
     local container=$1
     sleep 2
-    lxc exec $container -- apt update
-    lxc exec $container -- apt install python3-pip -y
-    lxc exec $container -- pip install --upgrade pip
-    lxc exec $container -- sudo apt-get install python3-dev python3-pip libpq5 libjpeg-dev tesseract-ocr libpoppler-cpp-dev imagemagick virtualenv libopencv-dev zbar-tools libzbar0 libzbar-dev libfuzzy-dev build-essential -y
-    lxc exec $container -- mkdir -p /var/www/MISP
-    lxc exec $container -- sudo chown -R www-data:www-data /var/www/MISP/
-    lxc exec $container -- sudo -u www-data virtualenv -p python3 /var/www/MISP/venv
-    lxc exec $container --cwd=/usr/local/src/ -- sudo chown -R www-data: .
-    lxc exec $container --cwd=/usr/local/src/ -- sudo -u www-data git clone https://github.com/MISP/misp-modules.git
-    lxc exec $container --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install -I -r REQUIREMENTS
-    lxc exec $container --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install .
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install python3-pip -y
+    lxc exec "$container" -- pip install --upgrade pip
+    lxc exec "$container" -- sudo apt-get install python3-dev python3-pip libpq5 libjpeg-dev tesseract-ocr libpoppler-cpp-dev imagemagick virtualenv libopencv-dev zbar-tools libzbar0 libzbar-dev libfuzzy-dev build-essential -y
+    lxc exec "$container" -- mkdir -p /var/www/MISP
+    lxc exec "$container" -- sudo chown -R www-data:www-data /var/www/MISP/
+    lxc exec "$container" -- sudo -u www-data virtualenv -p python3 /var/www/MISP/venv
+    lxc exec "$container" --cwd=/usr/local/src/ -- sudo chown -R www-data: .
+    lxc exec "$container" --cwd=/usr/local/src/ -- sudo -u www-data git clone https://github.com/MISP/misp-modules.git
+    lxc exec "$container" --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install -I -r REQUIREMENTS
+    lxc exec "$container" --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install .
 
     # Configure MISP Modules to listen on external connections
-    lxc exec $container -- sed -i 's/127\.0\.0\.1/0\.0\.0\.0/g' "/usr/local/src/misp-modules/etc/systemd/system/misp-modules.service"
+    lxc exec "$container" -- sed -i 's/127\.0\.0\.1/0\.0\.0\.0/g' "/usr/local/src/misp-modules/etc/systemd/system/misp-modules.service"
 
     # Start misp-modules as a service
-    lxc exec $container --cwd=/usr/local/src/misp-modules -- sudo cp etc/systemd/system/misp-modules.service /etc/systemd/system/
-    lxc exec $container -- sudo systemctl daemon-reload
-    lxc exec $container -- sudo systemctl enable --now misp-modules
-    lxc exec $container -- sudo service misp-modules start
+    lxc exec "$container" --cwd=/usr/local/src/misp-modules -- sudo cp etc/systemd/system/misp-modules.service /etc/systemd/system/
+    lxc exec "$container" -- sudo systemctl daemon-reload
+    lxc exec "$container" -- sudo systemctl enable --now misp-modules
+    lxc exec "$container" -- sudo service misp-modules start
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
 getModulesVersion(){
@@ -325,7 +329,7 @@ addModulesInfo(){
    '.commit_id = $commit_id | .creation_date = $date' \
    "$MODULES_INFO_TEMPLATE_FILE" > /tmp/info.json
 
-    lxc exec $container -- mkdir -p /etc/misp_modules_info
+    lxc exec "$container" -- mkdir -p /etc/misp_modules_info
     lxc file push /tmp/info.json ${container}/etc/misp_modules_info/
     rm /tmp/info.json
 }
@@ -425,7 +429,7 @@ EOF
 
     # Signing the file
     okay "Signing file: $file in directory: $SIGN_DIR with key: $GPG_KEY_ID"
-    gpg --default-key $GPG_KEY_ID --pinentry-mode loopback --passphrase $GPG_KEY_PASSPHRASE --detach-sign "${file}"
+    gpg --default-key "$GPG_KEY_ID" --pinentry-mode loopback --passphrase "$GPG_KEY_PASSPHRASE" --detach-sign "${file}"
 
     # Check if the signing was successful
     if [ $? -eq 0 ]; then
@@ -568,18 +572,23 @@ fi
 if $MYSQL; then
     lxc launch $UBUNTU "$MYSQL_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$MYSQL_CONTAINER"
-    Install MySQL
     if $BUILD_MYSQL_VERSION; then
-        lxc exec $MYSQL_CONTAINER -- apt update
-        lxc exec $MYSQL_CONTAINER -- apt install -y apt-transport-https curl lsb-release
-        lxc exec $MYSQL_CONTAINER -- mkdir -p /etc/apt/keyrings
-        lxc exec $MYSQL_CONTAINER -- curl -o /etc/apt/keyrings/mariadb-keyring.pgp 'https://mariadb.org/mariadb_release_signing_key.pgp'
-        lxc exec $MYSQL_CONTAINER -- bash -c "echo 'deb [signed-by=/etc/apt/keyrings/mariadb-keyring.pgp] https://mirror.23m.com/mariadb/repo/$MYSQL_VERSION/ubuntu $(lsb_release -cs) main' > /etc/apt/sources.list.d/mariadb.list"
-        lxc exec $MYSQL_CONTAINER -- apt update
-        lxc exec $MYSQL_CONTAINER -- apt install -y mariadb-server
+        lxc exec "$MYSQL_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+        lxc exec "$MYSQL_CONTAINER" -- apt update
+        lxc exec "$MYSQL_CONTAINER" -- apt upgrade -y
+        lxc exec "$MYSQL_CONTAINER" -- apt install -y apt-transport-https curl lsb-release
+        lxc exec "$MYSQL_CONTAINER" -- mkdir -p /etc/apt/keyrings
+        lxc exec "$MYSQL_CONTAINER" -- curl -o /etc/apt/keyrings/mariadb-keyring.pgp 'https://mariadb.org/mariadb_release_signing_key.pgp'
+        lxc exec "$MYSQL_CONTAINER" -- bash -c "echo 'deb [signed-by=/etc/apt/keyrings/mariadb-keyring.pgp] https://mirror.23m.com/mariadb/repo/$MYSQL_VERSION/ubuntu $(lsb_release -cs) main' > /etc/apt/sources.list.d/mariadb.list"
+        lxc exec "$MYSQL_CONTAINER" -- apt update
+        lxc exec "$MYSQL_CONTAINER" -- apt install -y mariadb-server
+        lxc exec "$MYSQL_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
     else
-        lxc exec $MYSQL_CONTAINER -- apt update
-        lxc exec $MYSQL_CONTAINER -- apt install -y mariadb-server
+        lxc exec "$MYSQL_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+        lxc exec "$MYSQL_CONTAINER" -- apt update
+        lxc exec "$MYSQL_CONTAINER" -- apt upgrade -y
+        lxc exec "$MYSQL_CONTAINER" -- apt install -y mariadb-server
+        lxc exec "$MYSQL_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
     fi
     mysql_version=$(getMysqlVersion $MYSQL_CONTAINER)
     # Create Image
@@ -602,39 +611,46 @@ if $REDIS; then
 
     if $BUILD_REDIS_VERSION; then
         # Install Redis
-        lxc exec $REDIS_CONTAINER -- apt update
-        lxc exec $REDIS_CONTAINER -- apt install -y wget build-essential tcl
-        lxc exec $REDIS_CONTAINER -- wget http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz && \
-        lxc exec $REDIS_CONTAINER -- tar xzf redis-$REDIS_VERSION.tar.gz && \
-        lxc exec $REDIS_CONTAINER --cwd=/root/redis-$REDIS_VERSION -- make && \
-        lxc exec $REDIS_CONTAINER --cwd=/root/redis-$REDIS_VERSION -- make install
+        lxc exec "$REDIS_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+        lxc exec "$REDIS_CONTAINER" -- apt update
+        lxc exec "$REDIS_CONTAINER" -- apt upgrade -y
+        lxc exec "$REDIS_CONTAINER" -- apt install -y wget build-essential tcl
+        lxc exec "$REDIS_CONTAINER" -- wget http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz && \
+        lxc exec "$REDIS_CONTAINER" -- tar xzf redis-$REDIS_VERSION.tar.gz && \
+        lxc exec "$REDIS_CONTAINER" --cwd=/root/redis-$REDIS_VERSION -- make && \
+        lxc exec "$REDIS_CONTAINER" --cwd=/root/redis-$REDIS_VERSION -- make install
+        lxc exec "$REDIS_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
         # Create redis service
-        lxc exec $REDIS_CONTAINER -- mkdir -p /etc/redis
-        lxc exec $REDIS_CONTAINER --cwd=/root/redis-$REDIS_VERSION -- cp redis.conf /etc/redis/redis.conf
-        lxc exec $REDIS_CONTAINER -- sed -i 's|^dir \./|dir /var/lib/redis|' /etc/redis/redis.conf
-        lxc exec $REDIS_CONTAINER -- sed -i 's|^pidfile /var/run/redis_6379.pid|pidfile /var/run/redis/redis-server.pid|' /etc/redis/redis.conf
-        lxc exec $REDIS_CONTAINER -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/redis/redis.conf
-        lxc file push $REDIS_SERVICE_FILE $REDIS_CONTAINER/etc/systemd/system/redis-server.service -v
-        lxc exec $REDIS_CONTAINER -- adduser --system --group --no-create-home redis
-        lxc exec $REDIS_CONTAINER -- mkdir -p /var/lib/redis
-        lxc exec $REDIS_CONTAINER -- chown redis:redis /var/lib/redis
-        lxc exec $REDIS_CONTAINER -- chmod 770 /var/lib/redis
-        lxc exec $REDIS_CONTAINER -- mkdir -p /var/run/redis
-        lxc exec $REDIS_CONTAINER -- chown redis:redis /var/run/redis
-        lxc exec $REDIS_CONTAINER -- chmod 770 /var/run/redis
-        lxc exec $REDIS_CONTAINER -- systemctl daemon-reload
-        lxc exec $REDIS_CONTAINER -- systemctl enable redis-server
-        lxc exec $REDIS_CONTAINER -- systemctl start redis-server
+        lxc exec "$REDIS_CONTAINER" -- mkdir -p /etc/redis
+        lxc exec "$REDIS_CONTAINER" --cwd=/root/redis-$REDIS_VERSION -- cp redis.conf /etc/redis/redis.conf
+        lxc exec "$REDIS_CONTAINER" -- sed -i 's|^dir \./|dir /var/lib/redis|' /etc/redis/redis.conf
+        lxc exec "$REDIS_CONTAINER" -- sed -i 's|^pidfile /var/run/redis_6379.pid|pidfile /var/run/redis/redis-server.pid|' /etc/redis/redis.conf
+        lxc exec "$REDIS_CONTAINER" -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/redis/redis.conf
+        lxc file push "$REDIS_SERVICE_FILE" $REDIS_CONTAINER/etc/systemd/system/redis-server.service -v
+        lxc exec "$REDIS_CONTAINER" -- adduser --system --group --no-create-home redis
+        lxc exec "$REDIS_CONTAINER" -- mkdir -p /var/lib/redis
+        lxc exec "$REDIS_CONTAINER" -- chown redis:redis /var/lib/redis
+        lxc exec "$REDIS_CONTAINER" -- chmod 770 /var/lib/redis
+        lxc exec "$REDIS_CONTAINER" -- mkdir -p /var/run/redis
+        lxc exec "$REDIS_CONTAINER" -- chown redis:redis /var/run/redis
+        lxc exec "$REDIS_CONTAINER" -- chmod 770 /var/run/redis
+        lxc exec "$REDIS_CONTAINER" -- systemctl daemon-reload
+        lxc exec "$REDIS_CONTAINER" -- systemctl enable redis-server
+        lxc exec "$REDIS_CONTAINER" -- systemctl start redis-server
+        lxc exec "$REDIS_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
     else
-        lxc exec $REDIS_CONTAINER -- apt update 
-        lxc exec $REDIS_CONTAINER -- apt install redis-server -y
+        lxc exec "$REDIS_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+        lxc exec "$REDIS_CONTAINER" -- apt update 
+        lxc exec "$REDIS_CONTAINER" -- apt upgrade -y
+        lxc exec "$REDIS_CONTAINER" -- apt install redis-server -y
+        lxc exec "$REDIS_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
     fi
 
-    redis_version=$(get_redis_version $REDIS_CONTAINER)
+    redis_version=$(get_redis_version "$REDIS_CONTAINER")
     # Create Image
-    lxc stop $REDIS_CONTAINER
-    lxc publish $REDIS_CONTAINER --alias $REDIS_IMAGE
-    lxc image export $REDIS_IMAGE $OUTPUTDIR
+    lxc stop "$REDIS_CONTAINER"
+    lxc publish "$REDIS_CONTAINER" --alias "$REDIS_IMAGE"
+    lxc image export "$REDIS_IMAGE" "$OUTPUTDIR"
     # Workaround for renaming image
     redis_image_name=${REDIS_IMAGE}_${redis_version}.tar.gz
     pushd $OUTPUTDIR && mv -i "$(ls -t | head -n1)" $redis_image_name
