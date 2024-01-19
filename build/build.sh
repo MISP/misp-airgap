@@ -79,36 +79,6 @@ getInstallerHash(){
     echo "$decoded_contents"
 }
 
-getMISPCommitID(){
-    current_branch=$(lxc exec "$MISP_CONTAINER" -- cat $MISP_PATH/MISP/.git/HEAD | awk '{print $2}')
-
-    echo "$(lxc exec "$MISP_CONTAINER" -- cat $MISP_PATH/MISP/.git/$current_branch)"
-}
-
-getMISPVersion(){
-    echo "$(lxc exec "$MISP_CONTAINER" -- cat $MISP_PATH/MISP/VERSION.json | jq -r '.major, .minor, .hotfix' | tr '\n' '.' | sed 's/\.$//')"
-}
-
-createMISPImage(){
-    local container_name="$1"
-    local image_name="$2"
-
-    local version
-    version=$(getMISPVersion)
-    local commit_id
-    commit_id=$(getMISPCommitID)
-
-    lxc stop "$container_name" > /dev/null
-    lxc publish "$container_name" --alias "$image_name" > /dev/null
-    lxc image export "$image_name" "$OUTPUTDIR" > /dev/null
-    # Workaround for renaming image
-    local new_name
-    new_name=${image_name}_v${version}_${commit_id}.tar.gz
-    pushd "$OUTPUTDIR" > /dev/null && mv -i "$(ls -t | head -n1)" $new_name 
-    popd > /dev/null || exit
-    echo $new_name
-}
-
 installMISP(){
     local container_name="$1"
 
@@ -175,34 +145,6 @@ cleanup(){
     lxc network delete "$NETWORK_NAME"
 }
 
-checkRessourcExist() {
-    local resource_type="$1"
-    local resource_name="$2"
-
-    case "$resource_type" in
-        "container")
-            lxc info "$resource_name" &>/dev/null
-            ;;
-        "image")
-            lxc image list --format=json | jq -e --arg alias "$resource_name" '.[] | select(.aliases[].name == $alias) | .fingerprint' &>/dev/null
-            ;;
-        "project")
-            lxc project list --format=json | jq -e --arg name "$resource_name" '.[] | select(.name == $name) | .name' &>/dev/null
-            ;;
-        "storage")
-            lxc storage list --format=json | jq -e --arg name "$resource_name" '.[] | select(.name == $name) | .name' &>/dev/null
-            ;;
-        "network")
-            lxc network list --format=json | jq -e --arg name "$resource_name" '.[] | select(.name == $name) | .name' &>/dev/null
-            ;;
-        "profile")
-            lxc profile list --format=json | jq -e --arg name "$resource_name" '.[] | select(.name == $name) | .name' &>/dev/null
-            ;;
-    esac
-
-    return $?
-}
-
 generateName(){
     local name="$1"
     echo "${name}-$(date +%Y%m%d%H%M%S)"
@@ -211,9 +153,9 @@ generateName(){
 addMISPInstallerInfo(){
     local container=$1
     local version
-    version=$(getMISPVersion)
+    version=$(getVersionGitTag "$container" "$MISP_PATH/MISP" "www-data")
     local misp_commit_id
-    misp_commit_id=$(getMISPCommitID)
+    misp_commit_id=$(getCommitID "$container" "$MISP_PATH/MISP")
 
     local date
     date=$(date '+%Y-%m-%d %H:%M:%S')
@@ -236,7 +178,7 @@ addMISPInstallerInfo(){
    "$MISP_INFO_TEMPLATE_FILE" > /tmp/info.json
 
     lxc exec "$container" -- mkdir -p /etc/misp_info
-    lxc file push /tmp/info.json ${container}/etc/misp_info/
+    lxc file push /tmp/info.json "${container}"/etc/misp_info/
     rm /tmp/info.json
 }
 
@@ -298,31 +240,12 @@ installMISPModules(){
     lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
-getModulesVersion(){
-    local container=$1
-    echo "$(lxc exec $container --cwd=/usr/local/src/misp-modules -- sudo -u www-data git tag | tail -n 1)"
-}
-
-createModulesImage(){
-    local container=$1
-    local image=$2
-    local commit_id=$(getModulesCommitID $container)
-    local version=$(getModulesVersion $container)
-    lxc stop $container > /dev/null
-    lxc publish $container --alias $image > /dev/null
-    lxc image export $image $OUTPUTDIR > /dev/null
-    # Workaround for renaming image
-    local new_name
-    new_name=${image}_${version}_${commit_id}.tar.gz
-    pushd $OUTPUTDIR > /dev/null && mv -i "$(ls -t | head -n1)" $new_name
-    popd > /dev/null || return
-    echo "$new_name"
-}
-
 addModulesInfo(){
     local container=$1
-    local commit_id=$(getModulesCommitID $container)
-    local date=$(date '+%Y-%m-%d %H:%M:%S')
+    local commit_id
+    commit_id=$(getModulesCommitID $container)
+    local date
+    date=$(date '+%Y-%m-%d %H:%M:%S')
 
     # Modify the JSON template as needed using jq
     jq --arg commit_id "$commit_id" --arg date "$date" \
@@ -360,7 +283,7 @@ usage() {
     echo
 }
 
-get_redis_version() {
+getRedisVersion() {
     local container=$1
     local input
     input=$(lxc exec $container -- redis-server --version) 
@@ -441,13 +364,148 @@ EOF
     popd || exit
 }
 
-startMessage(){
-    echo "Starting MISP-airgap build script ..."
-}
-
 successMessage(){
     component=$1
+    echo "----------------------------------------"
     echo "$component image created successfully."
+    echo "----------------------------------------"
+}
+
+createLXDImage(){
+    local container_name="$1"
+    local image_name="$2"
+    local application="$3"
+    case $application in 
+        "MISP" )
+            local commit_id
+            commit_id=$(getCommitID "$container_name" "$MISP_PATH/MISP")
+            local version
+            version=$(getVersionGitTag "$container_name" "$MISP_PATH/MISP" "www-data")
+            local new_name
+            new_name=${image_name}_${version}_${commit_id}.tar.gz
+            exportImage "$container_name" "$new_name" "$OUTPUTDIR"
+            ;;
+        "MySQL" )
+            local version
+            version=$(getMysqlVersion "$container_name")
+            local new_name
+            new_name=${image_name}_${version}.tar.gz
+            exportImage "$container_name" "$new_name" "$OUTPUTDIR"
+            ;;
+        "Redis" )
+            local version
+            version=$(getRedisVersion "$container_name")
+            local new_name
+            new_name=${image_name}_${version}.tar.gz
+            exportImage "$container_name" "$new_name" "$OUTPUTDIR"
+            ;;
+        "Modules" )
+            local commit_id
+            commit_id=$(getCommitID "$container_name" /usr/local/src/misp-modules)
+            local version
+            version=$(getVersionGitTag "$container_name" /usr/local/src/misp-modules "root")
+            local new_name
+            new_name=${image_name}_${version}_${commit_id}.tar.gz
+            exportImage "$container_name" "$new_name" "$OUTPUTDIR"
+            ;;
+    esac
+    sleep 2
+    if $SIGN; then
+        sign "$new_name"
+    fi
+}
+
+exportImage(){
+    local container="$1"
+    local new_name="$2"
+    lxc stop "$container"
+    lxc publish "$container" --alias "$container"
+    lxc image export "$container" "$OUTPUTDIR"
+    pushd "$OUTPUTDIR" && mv -i "$(ls -t | head -n1)" "$new_name"
+    popd || exit
+}
+
+getVersionGitTag(){
+    local container=$1
+    local path=$2
+    local user=$3
+    local version
+    version=$(lxc exec "$container" --cwd="$path" -- sudo -u "$user" bash -c "git tag | sort -V | tail -n 1")
+    echo "$version"
+}
+
+getCommitID(){
+    local container="$1"
+    local path_to_repo="$2"
+    local current_branch
+    current_branch=$(lxc exec "$container" -- cat "$path_to_repo"/.git/HEAD | awk '{print $2}')
+    local commit_id
+    commit_id=$(lxc exec "$container" -- cat "$path_to_repo"/.git/"$current_branch")
+    echo "$commit_id"
+}
+
+installRedisApt(){
+    local container=$1
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install redis-server -y
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+}
+
+installRedisSource(){
+    local container=$1
+    local version=$2
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install -y wget build-essential tcl
+    lxc exec "$container" -- wget http://download.redis.io/releases/redis-$version.tar.gz && \
+    lxc exec "$container" -- tar xzf redis-$version.tar.gz && \
+    lxc exec "$container" --cwd=/root/redis-$version -- make && \
+    lxc exec "$container" --cwd=/root/redis-$version -- make install
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- mkdir -p /etc/redis
+    lxc exec "$container" --cwd=/root/redis-$version -- cp redis.conf /etc/redis/redis.conf
+    lxc exec "$container" -- sed -i 's|^dir \./|dir /var/lib/redis|' /etc/redis/redis.conf
+    lxc exec "$container" -- sed -i 's|^pidfile /var/run/redis_6379.pid|pidfile /var/run/redis/redis-server.pid|' /etc/redis/redis.conf
+    lxc exec "$container" -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/redis/redis.conf
+    lxc file push "$REDIS_SERVICE_FILE" $container/etc/systemd/system/redis-server.service -v
+    lxc exec "$container" -- adduser --system --group --no-create-home redis
+    lxc exec "$container" -- mkdir -p /var/lib/redis
+    lxc exec "$container" -- chown redis:redis /var/lib/redis
+    lxc exec "$container" -- chmod 770 /var/lib/redis
+    lxc exec "$container" -- mkdir -p /var/run/redis
+    lxc exec "$container" -- chown redis:redis /var/run/redis
+    lxc exec "$container" -- chmod 770 /var/run/redis
+    lxc exec "$container" -- systemctl daemon-reload
+    lxc exec "$container" -- systemctl enable redis-server
+    lxc exec "$container" -- systemctl start redis-server
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+}
+
+installMySQLApt(){
+    local container=$1
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install -y mariadb-server
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+}
+
+installMySQLSource(){
+    local container=$1
+    local version=$2
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install -y apt-transport-https curl lsb-release
+    lxc exec "$container" -- mkdir -p /etc/apt/keyrings
+    lxc exec "$container" -- curl -o /etc/apt/keyrings/mariadb-keyring.pgp 'https://mariadb.org/mariadb_release_signing_key.pgp'
+    lxc exec "$container" -- bash -c "echo 'deb [signed-by=/etc/apt/keyrings/mariadb-keyring.pgp] https://mirror.23m.com/mariadb/repo/$version/ubuntu $(lsb_release -cs) main' > /etc/apt/sources.list.d/mariadb.list"
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt install -y mariadb-server
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
 # Main
@@ -544,7 +602,9 @@ if ! $MISP && ! $MYSQL && ! $REDIS && ! $MODULES; then
     exit 1
 fi
 
-startMessage
+echo "----------------------------------------"
+echo "Starting MISP-airgap build script ..."
+echo "----------------------------------------"
 
 trap cleanup EXIT
 
@@ -558,50 +618,22 @@ if $MISP; then
     lxc launch $UBUNTU "$MISP_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$MISP_CONTAINER"
     installMISP "$MISP_CONTAINER"
-    # Push info to container
     addMISPInstallerInfo "$MISP_CONTAINER"
-    # Create image
-    okay "Creating MISP image ... "
-    misp_image_name=$(createMISPImage "$MISP_CONTAINER" "$MISP_IMAGE")
-    if $SIGN; then
-        sign $misp_image_name
-    fi
+    createLXDImage "$MISP_CONTAINER" "$MISP_IMAGE" "MISP"
     successMessage "MISP"
 fi
 
 if $MYSQL; then
     lxc launch $UBUNTU "$MYSQL_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$MYSQL_CONTAINER"
+
     if $BUILD_MYSQL_VERSION; then
-        lxc exec "$MYSQL_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
-        lxc exec "$MYSQL_CONTAINER" -- apt update
-        lxc exec "$MYSQL_CONTAINER" -- apt upgrade -y
-        lxc exec "$MYSQL_CONTAINER" -- apt install -y apt-transport-https curl lsb-release
-        lxc exec "$MYSQL_CONTAINER" -- mkdir -p /etc/apt/keyrings
-        lxc exec "$MYSQL_CONTAINER" -- curl -o /etc/apt/keyrings/mariadb-keyring.pgp 'https://mariadb.org/mariadb_release_signing_key.pgp'
-        lxc exec "$MYSQL_CONTAINER" -- bash -c "echo 'deb [signed-by=/etc/apt/keyrings/mariadb-keyring.pgp] https://mirror.23m.com/mariadb/repo/$MYSQL_VERSION/ubuntu $(lsb_release -cs) main' > /etc/apt/sources.list.d/mariadb.list"
-        lxc exec "$MYSQL_CONTAINER" -- apt update
-        lxc exec "$MYSQL_CONTAINER" -- apt install -y mariadb-server
-        lxc exec "$MYSQL_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+        installMySQLSource "$MYSQL_CONTAINER" "$MYSQL_VERSION"
     else
-        lxc exec "$MYSQL_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
-        lxc exec "$MYSQL_CONTAINER" -- apt update
-        lxc exec "$MYSQL_CONTAINER" -- apt upgrade -y
-        lxc exec "$MYSQL_CONTAINER" -- apt install -y mariadb-server
-        lxc exec "$MYSQL_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+        installMySQLApt "$MYSQL_CONTAINER"
     fi
-    mysql_version=$(getMysqlVersion $MYSQL_CONTAINER)
-    # Create Image
-    lxc stop $MYSQL_CONTAINER
-    lxc publish $MYSQL_CONTAINER --alias $MYSQL_IMAGE
-    lxc image export $MYSQL_IMAGE $OUTPUTDIR
-    # Workaround for renaming image
-    mysql_image_name=${MYSQL_IMAGE}_${mysql_version}.tar.gz
-    pushd $OUTPUTDIR && mv -i "$(ls -t | head -n1)" $mysql_image_name
-    popd || exit 
-    if $SIGN; then
-        sign $mysql_image_name
-    fi
+
+    createLXDImage "$MYSQL_CONTAINER" "$MYSQL_IMAGE" "MySQL"
     successMessage "MySQL"
 fi
 
@@ -610,76 +642,34 @@ if $REDIS; then
     waitForContainer "$REDIS_CONTAINER"
 
     if $BUILD_REDIS_VERSION; then
-        # Install Redis
-        lxc exec "$REDIS_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
-        lxc exec "$REDIS_CONTAINER" -- apt update
-        lxc exec "$REDIS_CONTAINER" -- apt upgrade -y
-        lxc exec "$REDIS_CONTAINER" -- apt install -y wget build-essential tcl
-        lxc exec "$REDIS_CONTAINER" -- wget http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz && \
-        lxc exec "$REDIS_CONTAINER" -- tar xzf redis-$REDIS_VERSION.tar.gz && \
-        lxc exec "$REDIS_CONTAINER" --cwd=/root/redis-$REDIS_VERSION -- make && \
-        lxc exec "$REDIS_CONTAINER" --cwd=/root/redis-$REDIS_VERSION -- make install
-        lxc exec "$REDIS_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
-        # Create redis service
-        lxc exec "$REDIS_CONTAINER" -- mkdir -p /etc/redis
-        lxc exec "$REDIS_CONTAINER" --cwd=/root/redis-$REDIS_VERSION -- cp redis.conf /etc/redis/redis.conf
-        lxc exec "$REDIS_CONTAINER" -- sed -i 's|^dir \./|dir /var/lib/redis|' /etc/redis/redis.conf
-        lxc exec "$REDIS_CONTAINER" -- sed -i 's|^pidfile /var/run/redis_6379.pid|pidfile /var/run/redis/redis-server.pid|' /etc/redis/redis.conf
-        lxc exec "$REDIS_CONTAINER" -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/redis/redis.conf
-        lxc file push "$REDIS_SERVICE_FILE" $REDIS_CONTAINER/etc/systemd/system/redis-server.service -v
-        lxc exec "$REDIS_CONTAINER" -- adduser --system --group --no-create-home redis
-        lxc exec "$REDIS_CONTAINER" -- mkdir -p /var/lib/redis
-        lxc exec "$REDIS_CONTAINER" -- chown redis:redis /var/lib/redis
-        lxc exec "$REDIS_CONTAINER" -- chmod 770 /var/lib/redis
-        lxc exec "$REDIS_CONTAINER" -- mkdir -p /var/run/redis
-        lxc exec "$REDIS_CONTAINER" -- chown redis:redis /var/run/redis
-        lxc exec "$REDIS_CONTAINER" -- chmod 770 /var/run/redis
-        lxc exec "$REDIS_CONTAINER" -- systemctl daemon-reload
-        lxc exec "$REDIS_CONTAINER" -- systemctl enable redis-server
-        lxc exec "$REDIS_CONTAINER" -- systemctl start redis-server
-        lxc exec "$REDIS_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+        installRedisSource "$REDIS_CONTAINER" "$REDIS_VERSION"
     else
-        lxc exec "$REDIS_CONTAINER" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
-        lxc exec "$REDIS_CONTAINER" -- apt update 
-        lxc exec "$REDIS_CONTAINER" -- apt upgrade -y
-        lxc exec "$REDIS_CONTAINER" -- apt install redis-server -y
-        lxc exec "$REDIS_CONTAINER" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+        installRedisApt "$REDIS_CONTAINER"
     fi
 
-    redis_version=$(get_redis_version "$REDIS_CONTAINER")
-    # Create Image
-    lxc stop "$REDIS_CONTAINER"
-    lxc publish "$REDIS_CONTAINER" --alias "$REDIS_IMAGE"
-    lxc image export "$REDIS_IMAGE" "$OUTPUTDIR"
-    # Workaround for renaming image
-    redis_image_name=${REDIS_IMAGE}_${redis_version}.tar.gz
-    pushd $OUTPUTDIR && mv -i "$(ls -t | head -n1)" $redis_image_name
-    popd || exit
-    if $SIGN; then
-        sign $redis_image_name
-    fi
+    createLXDImage "$REDIS_CONTAINER" "$REDIS_IMAGE" "Redis"
     successMessage "Redis"
 fi
 
 if $MODULES; then
     lxc launch $UBUNTU "$MODULES_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
-    installMISPModules $MODULES_CONTAINER
-    addModulesInfo $MODULES_CONTAINER
+    installMISPModules "$MODULES_CONTAINER"
+    addModulesInfo "$MODULES_CONTAINER"
+
     sleep 10
-    if [ "$(lxc exec $MODULES_CONTAINER systemctl is-active misp-modules)" = "active" ]; then
+    if [ "$(lxc exec "$MODULES_CONTAINER" systemctl is-active misp-modules)" = "active" ]; then
         okay "Service misp-modules is running."
     else
         error "Service misp-modules is not running."
-        lxc stop $MODULES_CONTAINER
+        lxc stop "$MODULES_CONTAINER"
         cleanup
         exit 1
     fi
-    okay "Creating Modules image ... "
-    mysql_image_name=$(createModulesImage $MODULES_CONTAINER $MODULES_IMAGE)
-    if $SIGN; then
-        sign $mysql_image_name
-    fi
+
+    createLXDImage "$MODULES_CONTAINER" "$MODULES_IMAGE" "Modules"
     successMessage "Modules"
 fi
 
-echo "Build script finished successfully."
+echo "----------------------------------------"
+echo "Build script finished."
+echo "----------------------------------------"
