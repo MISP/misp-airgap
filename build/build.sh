@@ -205,13 +205,6 @@ getMysqlVersion() {
     echo "$version"
 }
 
-getModulesCommitID(){
-    local container=$1
-    local path=/usr/local/src/misp-modules
-    current_branch=$(lxc exec $container -- cat $path/.git/HEAD | awk '{print $2}')
-    echo "$(lxc exec $container -- cat $path/.git/$current_branch)" 
-}
-
 installMISPModules(){
     local container=$1
     sleep 2
@@ -243,7 +236,7 @@ installMISPModules(){
 addModulesInfo(){
     local container=$1
     local commit_id
-    commit_id=$(getModulesCommitID $container)
+    commit_id=$(getCommitID "$container" /usr/local/src/misp-modules)
     local date
     date=$(date '+%Y-%m-%d %H:%M:%S')
 
@@ -403,7 +396,7 @@ createLXDImage(){
             local commit_id
             commit_id=$(getCommitID "$container_name" /usr/local/src/misp-modules)
             local version
-            version=$(getVersionGitTag "$container_name" /usr/local/src/misp-modules "root")
+            version=$(getVersionGitTag "$container_name" /usr/local/src/misp-modules "www-data")
             local new_name
             new_name=${image_name}_${version}_${commit_id}.tar.gz
             exportImage "$container_name" "$new_name" "$OUTPUTDIR"
