@@ -18,12 +18,12 @@ MISP airgap is a project that facilitates the deployment and maintenance of [MIS
 Before setting up your environment, ensure that you meet the following prerequisites on your host system:
 
 - **Operating System:**
-  - Ubuntu 22.04
+  - [Ubuntu 22.04](https://releases.ubuntu.com/jammy/)
 - **Containerization:**
-  - LXD 5.19
+  - [LXD 5.19](https://documentation.ubuntu.com/lxd/en/latest/installing/)
 - **Additional Software:**
-  - jq 1.6
-  - yq 4.35.2
+  - [jq 1.6](https://jqlang.github.io/jq/download/)
+  - [yq 4.35.2](https://github.com/mikefarah/yq/#install)
 
 ## Hardware Requirements
 
@@ -151,6 +151,8 @@ Run the `UPDATE.sh` script with the `--interactive` flag to enter the interactiv
 bash UPDATE.sh --interactive
 ```
 
+>Note: It is recommende to use new names for the newly created containers. However if you want to keep the current container names, you can enter the same name for the new container as the current one. Please refer to the [Container Naming Conventions](#container-naming-conventions) section for more information.
+
 ### Non-Interactive Mode
 For a non-interactive setup, use command-line arguments to set configurations:
 
@@ -181,6 +183,16 @@ Below is the table summarizing the script flags and variables:
 | `MODULES_IMAGE`       | `<none>`                  | `--modules-image <image>`   | Specify the modules image.                           |
 | `NEW_MODULES`         | `modules-<creation_time>` | `--new-modules <name>`      | Specify the new modules container name.              |
 
+### Container Naming Conventions
+In LXD container names are used to identify containers for various operations including networking. Therefore, it is important to use a consistent naming convention for containers.
+
+As LXD does not allow containers with the same name, the script will automatically rename the old container if the new container name is the same as the old one. In iteractive mode the script will ask you if you are sure you want to rename the container. In non-interactive mode the script will automatically rename the container. 
+
+The script will use the following naming convention for renamed containers: 
+
+`updated-<container_name>-<creation_time>`
+
+All changes made by the script will be logged in the `naming.log` file in the `logs/` directory.
 
 ## Build
 If you want to build the images yourself, you can use the `build.sh` script in the `build/` directory. This is completely optional, as the images are already built and available for download. 

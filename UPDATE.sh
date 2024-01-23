@@ -17,6 +17,17 @@ setVars(){
     PATH_TO_MISP="/var/www/MISP/"
 
     SNAP_NAME=$(generateName "update")
+
+    NAMING_LOG_FILE="./logs/naming.log"
+
+    MISP_NEW_EQ_OLD=false
+    MYSQL_NEW_EQ_OLD=false
+    REDIS_NEW_EQ_OLD=false
+    MODULES_NEW_EQ_OLD=false
+    RENAMED_MISP=false
+    RENAMED_MYSQL=false
+    RENAMED_REDIS=false
+    RENAMED_MODULES=false
 }
 
 setDefaultArgs(){
@@ -40,17 +51,22 @@ setDefaultArgs(){
 
 error() {
     local msg=$1
-    echo -e "${RED}Error: $msg${NC}" > /dev/tty
+    echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] Error: $msg${NC}" > /dev/tty
 }
 
 warn() {
     local msg=$1
-    echo -e "${YELLOW}Warning: $msg${NC}" > /dev/tty
+    echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] Warning: $msg${NC}" > /dev/tty
 }
 
 okay() {
     local msg=$1
-    echo -e "${GREEN}Info: $msg${NC}" > /dev/tty
+    echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')] Success: $msg${NC}" > /dev/tty
+}
+
+info() {
+    local msg=$1
+    echo -e "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')] Info: $msg${NC}" > /dev/tty
 }
 
 generateName(){
@@ -251,7 +267,7 @@ validateArgs(){
     local image=()
 
     # Check images and if args set
-    if ! checkResourceExists "container" $CURRENT_MISP; then
+    if ! checkResourceExists "container" "$CURRENT_MISP"; then
         error "Container $CURRENT_MISP could not be found!"
         exit 1
     fi
@@ -294,12 +310,13 @@ validateArgs(){
     # Check if components are running
     if ! checkLXDContainerRunning "$CURRENT_MISP"; then
         error "Container $CURRENT_MISP is not running!"
+        exit 1
     fi
 
-    validateNewContainerSetup "$NEW_MISP" $MISP "MISP" "MISP_IMAGE"
-    validateNewContainerSetup "$NEW_MYSQL" $MYSQL "MySQL" "MYSQL_IMAGE"
-    validateNewContainerSetup "$NEW_REDIS" $REDIS "Redis" "REDIS_IMAGE"
-    validateNewContainerSetup "$NEW_MODULES" $MODULES "Modules" "MODULES_IMAGE"
+    validateNewContainerSetup "$NEW_MISP" "$MISP" "MISP" "MISP_IMAGE"
+    validateNewContainerSetup "$NEW_MYSQL" "$MYSQL" "MySQL" "MYSQL_IMAGE"
+    validateNewContainerSetup "$NEW_REDIS" "$REDIS" "Redis" "REDIS_IMAGE"
+    validateNewContainerSetup "$NEW_MODULES" "$MODULES" "Modules" "MODULES_IMAGE"
 
     # Check for duplicate names
     declare -A name_counts
@@ -327,7 +344,8 @@ validateArgs(){
 
 checkLXDContainerRunning() {
     local container_name=$1
-    local state=$(lxc list "^${container_name}$" --format csv -c s)
+    local state
+    state=$(lxc list "^${container_name}$" --format csv -c s)
 
     if [ "$state" == "RUNNING" ]; then
         return 0
@@ -344,11 +362,6 @@ validateNewContainerSetup() {
     if [ "$flag" = true ]; then
         if ! checkNamingConvention "$name"; then
             error "Name $name for $type container is not valid. Please use only alphanumeric characters and hyphens."
-            exit 1
-        fi
-
-        if checkResourceExists "container" "$name"; then
-            error "Container $name already exists in the current project. Please choose a new name."
             exit 1
         fi
 
@@ -385,14 +398,26 @@ interrupt() {
 }
 
 reset(){
-    local new_container=("$NEW_MISP" "$NEW_MYSQL" "$NEW_REDIS" "$NEW_MODULES")
+    local new_containers=()
     local backup_container=("$BACKUP_MISP" "$BACKUP_MYSQL" "$BACKUP_REDIS" "$BACKUP_MODULES")
     local images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$REDIS_IMAGE_NAME" "$MODULES_IMAGE_NAME")
 
+    if $RENAMED_MISP || ! $MISP_NEW_EQ_OLD; then
+        new_containers+=("$NEW_MISP")
+    fi
+    if $RENAMED_MYSQL || ! $MYSQL_NEW_EQ_OLD; then
+        new_containers+=("$NEW_MYSQL")
+    fi
+    if $RENAMED_REDIS || ! $REDIS_NEW_EQ_OLD; then
+        new_containers+=("$NEW_REDIS")
+    fi
+    if $RENAMED_MODULES || ! $MODULES_NEW_EQ_OLD; then
+        new_containers+=("$NEW_MODULES")
+    fi
+
     warn "Reset to state before updating ..."
     sleep 5
-
-    for container in "${new_container[@]}"; do
+    for container in "${new_containers[@]}"; do
         for i in $(lxc list --format=json | jq -r '.[].name'); do
             if [ "$i" == "$container" ]; then
                 lxc delete "$container" --force
@@ -408,12 +433,25 @@ reset(){
         done
     done
 
+    if $RENAMED_MISP; then
+    renameContainer "$CURRENT_MISP" "$ORIGINAL_MISP"
+    fi
+    if $RENAMED_MYSQL; then
+        renameContainer "$CURRENT_MYSQL" "$ORIGINAL_MYSQL"
+    fi
+    if $RENAMED_REDIS; then
+        renameContainer "$CURRENT_REDIS" "$ORIGINAL_REDIS"
+    fi
+    if $RENAMED_MODULES; then
+        renameContainer "$CURRENT_MODULES" "$ORIGINAL_MODULES"
+    fi
+
     warn "Restore snapshots ..."
-    lxc restore $BACKUP_MISP $SNAP_NAME
-    lxc restore $BACKUP_MYSQL $SNAP_NAME
-    lxc restore $BACKUP_REDIS $SNAP_NAME
+    lxc restore "$BACKUP_MISP" "$SNAP_NAME"
+    lxc restore "$BACKUP_MYSQL" "$SNAP_NAME"
+    lxc restore "$BACKUP_REDIS" "$SNAP_NAME"
     if $CUSTOM_MODULES; then
-        lxc restore $BACKUP_MODULES $SNAP_NAME
+        lxc restore "$BACKUP_MODULES" "$SNAP_NAME"
     fi
 
     for container in "${backup_container[@]}"; do
@@ -425,15 +463,30 @@ reset(){
     done
 
     # Delete snapshots
-    lxc delete $BACKUP_MISP/$SNAP_NAME
-    lxc delete $BACKUP_MYSQL/$SNAP_NAME
-    lxc delete $BACKUP_REDIS/$SNAP_NAME
+    lxc delete "$BACKUP_MISP"/"$SNAP_NAME"
+    lxc delete "$BACKUP_MYSQL"/"$SNAP_NAME"
+    lxc delete "$BACKUP_REDIS"/"$SNAP_NAME"
     if $CUSTOM_MODULES; then
-        lxc delete $BACKUP_MODULES/$SNAP_NAME
+        lxc delete "$BACKUP_MODULES"/"$SNAP_NAME"
     fi
 }
 
-getAdditionalContainer(){
+restoreBackup(){
+    local container=$1
+    local backup=$2
+
+    if ! checkResourceExists "container" "$container"; then
+        error "Container $container could not be found!"
+        exit 1
+    fi
+    if lxc info "$container" | grep -q "$backup"; then
+        error "Backup $backup for container $container does not exist!"
+        exit 1
+    fi
+    lxc restore "$container" "$backup"
+}
+
+getAdditionalContainers(){
     CURRENT_MYSQL=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'host' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed "s/'.lxd'//g" | sed 's/[^a-zA-Z0-9-]//g'")
 
     if ! checkLXDContainerRunning "$CURRENT_MYSQL"; then
@@ -442,7 +495,7 @@ getAdditionalContainer(){
 
     # Check root pwd
     if $MISP || $MYSQL; then
-        if ! lxc exec $CURRENT_MYSQL -- mysql -u "root" -p"$MYSQL_ROOT_PASSWORD" -e "quit" > /dev/null 2>&1; then
+        if ! lxc exec "$CURRENT_MYSQL" -- mysql -u "root" -p"$MYSQL_ROOT_PASSWORD" -e "quit" > /dev/null 2>&1; then
             error "MySQL root pwd is invalid!"
             exit 1
         fi
@@ -450,7 +503,7 @@ getAdditionalContainer(){
 
     local redis_host
     redis_host=$(lxc exec "$CURRENT_MISP" -- bash -c 'sudo -u "www-data" -H sh -c "/var/www/MISP/app/Console/cake Admin getSetting MISP.redis_host"')
-    CURRENT_REDIS=$(echo $redis_host | jq -r '.value' | sed "s/\\.lxd$//")
+    CURRENT_REDIS=$(echo "$redis_host" | jq -r '.value' | sed "s/\\.lxd$//")
 
     if ! checkLXDContainerRunning "$CURRENT_REDIS"; then
         error "Container $CURRENT_REDIS is not running!"
@@ -460,7 +513,7 @@ getAdditionalContainer(){
     CUSTOM_MODULES=true
     local modules_host
     modules_host=$(lxc exec "$CURRENT_MISP" -- bash -c 'sudo -u "www-data" -H sh -c "/var/www/MISP/app/Console/cake Admin getSetting Plugin.Enrichment_services_url"')
-    CURRENT_MODULES=$(echo $modules_host | jq -r '.value' | sed "s/\\.lxd$//")
+    CURRENT_MODULES=$(echo "$modules_host" | jq -r '.value' | sed "s/\\.lxd$//")
     if [ "$CURRENT_MODULES" == "http://127.0.0.1" ]; then
         CUSTOM_MODULES=false
     fi
@@ -469,10 +522,18 @@ getAdditionalContainer(){
             error "Container $CURRENT_MODULES is not running!"
         fi
     fi
+
+    # Save original names
+    ORIGINAL_MISP=$CURRENT_MISP
+    ORIGINAL_MYSQL=$CURRENT_MYSQL
+    ORIGINAL_REDIS=$CURRENT_REDIS
+    if $CUSTOM_MODULES; then
+        ORIGINAL_MODULES=$CURRENT_MODULES
+    fi
 }
 
 cleanupMISP(){
-    lxc image delete $MISP_IMAGE_NAME
+    lxc image delete "$MISP_IMAGE_NAME"
     rm -r "$TEMP"
 }
 
@@ -481,24 +542,24 @@ createRedisSocket(){
     local file_path="/etc/redis/redis.conf"
     local lines_to_add="# create a unix domain socket to listen on\nunixsocket /var/run/redis/redis.sock\n# set permissions for the socket\nunixsocketperm 775"
 
-    lxc exec $NEW_MISP -- usermod -g www-data redis
-    lxc exec $NEW_MISP -- mkdir -p /var/run/redis/
-    lxc exec $NEW_MISP -- chown -R redis:www-data /var/run/redis
-    lxc exec $NEW_MISP -- cp "$file_path" "$file_path.bak"
-    lxc exec $NEW_MISP -- bash -c "echo -e \"$lines_to_add\" | cat - \"$file_path\" >tempfile && mv tempfile \"$file_path\""
-    lxc exec $NEW_MISP -- usermod -aG redis www-data
-    lxc exec $NEW_MISP -- service redis-server restart
+    lxc exec "$NEW_MISP" -- usermod -g www-data redis
+    lxc exec "$NEW_MISP" -- mkdir -p /var/run/redis/
+    lxc exec "$NEW_MISP" -- chown -R redis:www-data /var/run/redis
+    lxc exec "$NEW_MISP" -- cp "$file_path" "$file_path.bak"
+    lxc exec "$NEW_MISP" -- bash -c "echo -e \"$lines_to_add\" | cat - \"$file_path\" >tempfile && mv tempfile \"$file_path\""
+    lxc exec "$NEW_MISP" -- usermod -aG redis www-data
+    lxc exec "$NEW_MISP" -- service redis-server restart
 
     # Modify php.ini
     local php_ini_path="/etc/php/$PHP_VERSION/apache2/php.ini" 
     local socket_path="/var/run/redis/redis.sock"
-    lxc exec $NEW_MISP -- sed -i "s|;session.save_path = \"/var/lib/php/sessions\"|session.save_path = \"$socket_path\"|; s|session.save_handler = files|session.save_handler = redis|" $php_ini_path
-    lxc exec $NEW_MISP -- sudo service apache2 restart
+    lxc exec "$NEW_MISP" -- sed -i "s|;session.save_path = \"/var/lib/php/sessions\"|session.save_path = \"$socket_path\"|; s|session.save_handler = files|session.save_handler = redis|" "$php_ini_path"
+    lxc exec "$NEW_MISP" -- sudo service apache2 restart
 }
 
 updateMISP(){
     trap 'err ${LINENO}' ERR
-    okay "Update MISP ..."
+    info "Update MISP..."
     TEMP=$(mktemp -d)
 
     # Check if the directory was created successfully
@@ -509,85 +570,84 @@ updateMISP(){
     okay "Created temporary directory $TEMP."
 
     # Pull config
-    okay "Extract files from current MISP..."
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/app/files $TEMP -v
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/app/tmp $TEMP -v
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/app/Config $TEMP -v
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/app/webroot/img $TEMP/webroot/ -v
-    lxc file pull $CURRENT_MISP/var/www/MISP/app/webroot/gpg.asc $TEMP/webroot/ -v
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/app/View/Emails/html/Custom $TEMP/View/Emails/html/ -v
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/app/View/Emails/text/Custom $TEMP/View/Emails/text/ -v
-    lxc file pull $CURRENT_MISP/var/www/MISP/app/Plugin/CakeResque/Config/config.php $TEMP/Plugin/CakeResque/Config/ -v
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/.gnupg/openpgp-revocs.d $TEMP/.gnupg/ -v
-    lxc file pull -r $CURRENT_MISP/var/www/MISP/.gnupg/private-keys-v1.d $TEMP/.gnupg/ -v
-    lxc file pull $CURRENT_MISP/var/www/MISP/.gnupg/pubring.kbx $TEMP/.gnupg/ -v
-    lxc file pull $CURRENT_MISP/var/www/MISP/.gnupg/pubring.kbx~ $TEMP/.gnupg/ -v
-    lxc file pull $CURRENT_MISP/var/www/MISP/.gnupg/trustdb.gpg $TEMP/.gnupg/ -v
+    info "Extract files from current MISP..."
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/app/files "$TEMP" -v
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/app/tmp "$TEMP" -v
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/app/Config "$TEMP" -v
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/app/webroot/img "$TEMP"/webroot/ -v
+    lxc file pull "$CURRENT_MISP"/var/www/MISP/app/webroot/gpg.asc "$TEMP"/webroot/ -v
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/app/View/Emails/html/Custom "$TEMP"/View/Emails/html/ -v
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/app/View/Emails/text/Custom "$TEMP"/View/Emails/text/ -v
+    lxc file pull "$CURRENT_MISP"/var/www/MISP/app/Plugin/CakeResque/Config/config.php "$TEMP"/Plugin/CakeResque/Config/ -v
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/.gnupg/openpgp-revocs.d "$TEMP"/.gnupg/ -v
+    lxc file pull -r "$CURRENT_MISP"/var/www/MISP/.gnupg/private-keys-v1.d "$TEMP"/.gnupg/ -v
+    lxc file pull "$CURRENT_MISP"/var/www/MISP/.gnupg/pubring.kbx "$TEMP"/.gnupg/ -v
+    lxc file pull "$CURRENT_MISP"/var/www/MISP/.gnupg/pubring.kbx~ "$TEMP"/.gnupg/ -v
+    lxc file pull "$CURRENT_MISP"/var/www/MISP/.gnupg/trustdb.gpg "$TEMP"/.gnupg/ -v
 
-    okay "Get additional config..."
+    info "Get additional config..."
     MYSQL_USER=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'login' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed 's/[^a-zA-Z0-9]//g'")
     PHP_VERSION=$(lxc exec "$CURRENT_MISP" -- bash -c "php -v | head -n 1 | awk '{print \$2}' | cut -d '.' -f 1,2")
-    PHP_MEMORY_LIMIT=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "memory_limit" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
-    PHP_MAX_EXECUTION_TIME=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "max_execution_time" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
-    PHP_UPLOAD_MAX_FILESIZE=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "upload_max_filesize" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
-    PHP_POST_MAX_SIZE=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "post_max_size" /etc/php/$PHP_VERSION/apache2/php.ini | awk -F' = ' '{print $2}')
+    PHP_MEMORY_LIMIT=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "memory_limit" /etc/php/"$PHP_VERSION"/apache2/php.ini | awk -F' = ' '{print $2}')
+    PHP_MAX_EXECUTION_TIME=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "max_execution_time" /etc/php/"$PHP_VERSION"/apache2/php.ini | awk -F' = ' '{print $2}')
+    PHP_UPLOAD_MAX_FILESIZE=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "upload_max_filesize" /etc/php/"$PHP_VERSION"/apache2/php.ini | awk -F' = ' '{print $2}')
+    PHP_POST_MAX_SIZE=$(lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- grep "post_max_size" /etc/php/"$PHP_VERSION"/apache2/php.ini | awk -F' = ' '{print $2}')
 
     # Import new image
-    okay "Import image..."
-    lxc image import $MISP_IMAGE --alias $MISP_IMAGE_NAME
+    info "Import image..."
+    lxc image import "$MISP_IMAGE" --alias "$MISP_IMAGE_NAME"
 
     # Create new instance
-    okay "Create new MISP instance..."
+    info "Create new MISP instance..."
     local profile
-    profile=$(lxc config show $CURRENT_MISP | yq eval '.profiles | join(" ")' -)
-    lxc launch $MISP_IMAGE_NAME $NEW_MISP --profile=$profile
+    profile=$(lxc config show "$CURRENT_MISP" | yq eval '.profiles | join(" ")' -)
+    lxc launch "$MISP_IMAGE_NAME" "$NEW_MISP" --profile="$profile"
 
     # Transfer files to new instance
     echo "Push files to new MISP instance"
-    lxc file push -r $TEMP/files $NEW_MISP/var/www/MISP/app/ -v
-    lxc file push -r $TEMP/tmp $NEW_MISP/var/www/MISP/app/ -v
-    lxc file push -r $TEMP/Config $NEW_MISP/var/www/MISP/app/ -v
-    lxc file push -r $TEMP/webroot/img $NEW_MISP/var/www/MISP/app/webroot/ -v
-    lxc file push $TEMP/webroot/gpg.asc $NEW_MISP/var/www/MISP/app/webroot/ -v
-    lxc file push -r $TEMP/View/Emails/html/Custom $NEW_MISP/var/www/MISP/app/View/Emails/html/ -v
-    lxc file push -r $TEMP/View/Emails/text/Custom $NEW_MISP/var/www/MISP/app/View/Emails/text/ -v
-    lxc file push $TEMP/Plugin/CakeResque/Config/config.php $NEW_MISP/var/www/MISP/app/Plugin/CakeResque/Config/ -v
-    lxc file push -r $TEMP/.gnupg $NEW_MISP/var/www/MISP/ -v
+    lxc file push -r "$TEMP"/files "$NEW_MISP"/var/www/MISP/app/ -v
+    lxc file push -r "$TEMP"/tmp "$NEW_MISP"/var/www/MISP/app/ -v
+    lxc file push -r "$TEMP"/Config "$NEW_MISP"/var/www/MISP/app/ -v
+    lxc file push -r "$TEMP"/webroot/img "$NEW_MISP"/var/www/MISP/app/webroot/ -v
+    lxc file push "$TEMP"/webroot/gpg.asc "$NEW_MISP"/var/www/MISP/app/webroot/ -v
+    lxc file push -r "$TEMP"/View/Emails/html/Custom "$NEW_MISP"/var/www/MISP/app/View/Emails/html/ -v
+    lxc file push -r "$TEMP"/View/Emails/text/Custom "$NEW_MISP"/var/www/MISP/app/View/Emails/text/ -v
+    lxc file push "$TEMP"/Plugin/CakeResque/Config/config.php "$NEW_MISP"/var/www/MISP/app/Plugin/CakeResque/Config/ -v
+    lxc file push -r "$TEMP"/.gnupg "$NEW_MISP"/var/www/MISP/ -v
 
     # Set permissions
-    lxc exec $NEW_MISP -- sudo chown -R www-data:www-data $PATH_TO_MISP
-    lxc exec $NEW_MISP -- sudo chmod -R 750 $PATH_TO_MISP
-    lxc exec $NEW_MISP -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/tmp
-    lxc exec $NEW_MISP -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/files
-    lxc exec $NEW_MISP -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/files/scripts/tmp
+    lxc exec "$NEW_MISP" -- sudo chown -R www-data:www-data $PATH_TO_MISP
+    lxc exec "$NEW_MISP" -- sudo chmod -R 750 $PATH_TO_MISP
+    lxc exec "$NEW_MISP" -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/tmp
+    lxc exec "$NEW_MISP" -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/files
+    lxc exec "$NEW_MISP" -- sudo chmod -R g+ws ${PATH_TO_MISP}/app/files/scripts/tmp
 
     # Change host address on MySQL
-    lxc exec $CURRENT_MYSQL -- mysql -u root -p$MYSQL_ROOT_PASSWORD -e "RENAME USER '$MYSQL_USER'@'$CURRENT_MISP.lxd' TO '$MYSQL_USER'@'$NEW_MISP.lxd';"
+    if ! $MISP_NEW_EQ_OLD; then
+        lxc exec "$CURRENT_MYSQL" -- mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "RENAME USER '$MYSQL_USER'@'$CURRENT_MISP.lxd' TO '$MYSQL_USER'@'$NEW_MISP.lxd';"
+    fi
 
     # Apply php.ini config
-    lxc exec $NEW_MISP -- bash -c "grep -q '^memory_limit' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^memory_limit.*/memory_limit = $PHP_MEMORY_LIMIT/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'memory_limit = $PHP_MEMORY_LIMIT' >> /etc/php/$PHP_VERSION/apache2/php.ini"
-    lxc exec $NEW_MISP -- bash -c "grep -q '^max_execution_time' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^max_execution_time.*/max_execution_time = $PHP_MAX_EXECUTION_TIME/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'max_execution_time = $PHP_MAX_EXECUTION_TIME' >> /etc/php/$PHP_VERSION/apache2/php.ini"
-    lxc exec $NEW_MISP -- bash -c "grep -q '^upload_max_filesize' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^upload_max_filesize.*/upload_max_filesize = $PHP_UPLOAD_MAX_FILESIZE/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'upload_max_filesize = $PHP_UPLOAD_MAX_FILESIZE' >> /etc/php/$PHP_VERSION/apache2/php.ini"
-    lxc exec $NEW_MISP -- bash -c "grep -q '^mempost_max_sizeory_limit' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^post_max_size.*/post_max_size = $PHP_POST_MAX_SIZE/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'post_max_size = $PHP_POST_MAX_SIZE' >> /etc/php/$PHP_VERSION/apache2/php.ini"
-    lxc exec $NEW_MISP -- sudo service apache2 restart
+    lxc exec "$NEW_MISP" -- bash -c "grep -q '^memory_limit' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^memory_limit.*/memory_limit = $PHP_MEMORY_LIMIT/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'memory_limit = $PHP_MEMORY_LIMIT' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+    lxc exec "$NEW_MISP" -- bash -c "grep -q '^max_execution_time' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^max_execution_time.*/max_execution_time = $PHP_MAX_EXECUTION_TIME/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'max_execution_time = $PHP_MAX_EXECUTION_TIME' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+    lxc exec "$NEW_MISP" -- bash -c "grep -q '^upload_max_filesize' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^upload_max_filesize.*/upload_max_filesize = $PHP_UPLOAD_MAX_FILESIZE/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'upload_max_filesize = $PHP_UPLOAD_MAX_FILESIZE' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+    lxc exec "$NEW_MISP" -- bash -c "grep -q '^mempost_max_sizeory_limit' /etc/php/$PHP_VERSION/apache2/php.ini && sed -i 's/^post_max_size.*/post_max_size = $PHP_POST_MAX_SIZE/' /etc/php/$PHP_VERSION/apache2/php.ini || echo 'post_max_size = $PHP_POST_MAX_SIZE' >> /etc/php/$PHP_VERSION/apache2/php.ini"
+    lxc exec "$NEW_MISP" -- sudo service apache2 restart
 
     createRedisSocket
 
     # Update
-    lxc exec $NEW_MISP -- sudo -u www-data bash -c "$PATH_TO_MISP/app/Console/cake Admin runUpdates"
+    lxc exec "$NEW_MISP" -- sudo -u www-data bash -c "$PATH_TO_MISP/app/Console/cake Admin runUpdates"
 
-    # Start workers
-    # lxc exec $NEW_MISP --cwd=${PATH_TO_MISP}/app/Console/worker -- sudo -u "www-data" -H sh -c "bash start.sh"
-
-    okay "Stopping current MISP instance..."
-    lxc stop $CURRENT_MISP
+    info "Stopping current MISP instance..."
+    lxc stop "$CURRENT_MISP"
 
     cleanupMISP
 }
 
 cleanupMySQL(){
-    lxc image delete $MYSQL_IMAGE_NAME
-    rm -r $TEMP
+    lxc image delete "$MYSQL_IMAGE_NAME"
+    rm -r "$TEMP"
 }
 
 editMySQLConf(){
@@ -595,7 +655,7 @@ editMySQLConf(){
     local value=$2
     local container=$3
 
-    lxc exec $container -- bash -c "\
+    lxc exec "$container" -- bash -c "\
     if grep -q '^$key' /etc/mysql/mariadb.conf.d/50-server.cnf; then \
         sed -i 's/^$key.*/$key = $value/' /etc/mysql/mariadb.conf.d/50-server.cnf; \
     else \
@@ -608,15 +668,15 @@ editMySQLConf(){
 
 updateMySQL(){
     trap 'err ${LINENO}' ERR
-    okay "Update MySQL ..."
+    info "Update MySQL..."
     local profile
-    profile=$(lxc config show $CURRENT_MYSQL | yq eval '.profiles | join(" ")' -)
-    lxc image import $MYSQL_IMAGE --alias $MYSQL_IMAGE_NAME
-    lxc launch $MYSQL_IMAGE_NAME $NEW_MYSQL --profile=$profile
+    profile=$(lxc config show "$CURRENT_MYSQL" | yq eval '.profiles | join(" ")' -)
+    lxc image import "$MYSQL_IMAGE" --alias "$MYSQL_IMAGE_NAME"
+    lxc launch "$MYSQL_IMAGE_NAME" "$NEW_MYSQL" --profile="$profile"
     sleep 2
 
     # Apply config
-    lxc exec $NEW_MYSQL -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
+    lxc exec "$NEW_MYSQL" -- sed -i 's/bind-address            = 127.0.0.1/bind-address            = 0.0.0.0/' "/etc/mysql/mariadb.conf.d/50-server.cnf"
     INNODB_BUFFER_POOL_SIZE=$(lxc exec "$CURRENT_MYSQL" -- grep "innodb_buffer_pool_size" /etc/mysql/mariadb.conf.d/50-server.cnf | awk -F '=' '/^innodb_buffer_pool_size=/ {print $2}')
     INNODB_CHANGE_BUFFERING=$(lxc exec "$CURRENT_MYSQL" -- grep "innodb_change_buffering" /etc/mysql/mariadb.conf.d/50-server.cnf | awk -F '=' '/^innodb_change_buffering=/ {print $2}')
     INNODB_IO_CAPACITY=$(lxc exec "$CURRENT_MYSQL" -- grep "innodb_io_capacity" /etc/mysql/mariadb.conf.d/50-server.cnf | awk -F '=' '/^innodb_io_capacity=/ {print $2}')
@@ -657,58 +717,58 @@ updateMySQL(){
     fi
 
     # Move data 
-    okay "Copying data to new database ..."
+    info "Copying data to new database ..."
     TEMP=$(mktemp -d)
-    lxc exec $CURRENT_MYSQL -- mysqldump -u root -p$MYSQL_ROOT_PASSWORD --all-databases > $TEMP/backup.sql
-    lxc exec $NEW_MYSQL -- mysql -u root -p$MYSQL_ROOT_PASSWORD < $TEMP/backup.sql
+    lxc exec "$CURRENT_MYSQL" -- mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --all-databases > "$TEMP"/backup.sql
+    lxc exec "$NEW_MYSQL" -- mysql -u root -p"$MYSQL_ROOT_PASSWORD" < "$TEMP"/backup.sql
 
-     lxc exec $NEW_MYSQL -- sudo systemctl restart mysql
+     lxc exec "$NEW_MYSQL" -- sudo systemctl restart mysql
 
     # Configure MISP
-    lxc exec $CURRENT_MISP -- sed -i "s|$CURRENT_MYSQL.lxd|$NEW_MYSQL.lxd|" "$PATH_TO_MISP/app/Config/database.php"
+    lxc exec "$CURRENT_MISP" -- sed -i "s|$CURRENT_MYSQL.lxd|$NEW_MYSQL.lxd|" "$PATH_TO_MISP/app/Config/database.php"
 
-    lxc stop $CURRENT_MYSQL
+    lxc stop "$CURRENT_MYSQL"
 
     cleanupMySQL
 }
 
 
 cleanupRedis(){
-    lxc image delete $REDIS_IMAGE_NAME
+    lxc image delete "$REDIS_IMAGE_NAME"
 }
 
 updateRedis(){
     trap 'err ${LINENO}' ERR
-    okay "Update Redis ..."
+    info "Update Redis..."
     local profile
-    profile=$(lxc config show $CURRENT_REDIS | yq eval '.profiles | join(" ")' -)
-    lxc image import $REDIS_IMAGE --alias $REDIS_IMAGE_NAME
-    lxc launch $REDIS_IMAGE_NAME $NEW_REDIS --profile=$profile
+    profile=$(lxc config show "$CURRENT_REDIS" | yq eval '.profiles | join(" ")' -)
+    lxc image import "$REDIS_IMAGE" --alias "$REDIS_IMAGE_NAME"
+    lxc launch "$REDIS_IMAGE_NAME" "$NEW_REDIS" --profile="$profile"
 
     # Configure new Redis
     local port
     port=$(lxc exec "$CURRENT_REDIS" -- grep "port" /etc/redis/redis.conf | awk '/^port/ {print $2}')
-    lxc exec $NEW_REDIS -- sed -i "s/^bind .*/bind 0.0.0.0/" "/etc/redis/redis.conf"
-    lxc exec $NEW_REDIS -- sed -i "s/^port .*/port $port/" "/etc/redis/redis.conf"
-    lxc exec $NEW_REDIS -- systemctl restart redis-server
+    lxc exec "$NEW_REDIS" -- sed -i "s/^bind .*/bind 0.0.0.0/" "/etc/redis/redis.conf"
+    lxc exec "$NEW_REDIS" -- sed -i "s/^port .*/port $port/" "/etc/redis/redis.conf"
+    lxc exec "$NEW_REDIS" -- systemctl restart redis-server
 
     # Configure MISP
-    lxc exec $CURRENT_MISP -- sed -i "s/'host' => '$CURRENT_REDIS.lxd'/'host' => '$NEW_REDIS.lxd'/; s/'port' => 6379/'port' => $port/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
-    lxc exec $CURRENT_MISP -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.ZeroMQ_redis_host" "$NEW_REDIS.lxd"
-    lxc exec $CURRENT_MISP -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "MISP.redis_host" "$NEW_REDIS.lxd"
+    lxc exec "$CURRENT_MISP" -- sed -i "s/'host' => '$CURRENT_REDIS.lxd'/'host' => '$NEW_REDIS.lxd'/; s/'port' => 6379/'port' => $port/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
+    lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.ZeroMQ_redis_host" "$NEW_REDIS.lxd"
+    lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "MISP.redis_host" "$NEW_REDIS.lxd"
 
-    lxc stop $CURRENT_REDIS
+    lxc stop "$CURRENT_REDIS"
 
     cleanupRedis
 }
 
 cleanupModules(){
-    lxc image delete $MODULES_IMAGE_NAME
+    lxc image delete "$MODULES_IMAGE_NAME"
 }
 
 checkModules(){
     local instance=$1
-    if [ "$(lxc exec $instance -- systemctl is-active misp-modules)" = "active" ]; then
+    if [ "$(lxc exec "$instance" -- systemctl is-active misp-modules)" = "active" ]; then
         okay "Service misp-modules is running."
     else
         error "Service misp-modules is not running."
@@ -719,27 +779,63 @@ checkModules(){
 
 updateModules(){
     trap 'err ${LINENO}' ERR
-    okay "Update Modules ..."
+    info "Update Modules..."
     local profile
-    profile=$(lxc config show $CURRENT_MODULES | yq eval '.profiles | join(" ")' -)
-    lxc image import $MODULES_IMAGE --alias $MODULES_IMAGE_NAME
-    lxc launch $MODULES_IMAGE_NAME $NEW_MODULES --profile=$profile
+    profile=$(lxc config show "$CURRENT_MODULES" | yq eval '.profiles | join(" ")' -)
+    lxc image import "$MODULES_IMAGE" --alias "$MODULES_IMAGE_NAME"
+    lxc launch "$MODULES_IMAGE_NAME" "$NEW_MODULES" --profile="$profile"
     sleep 5
 
     checkModules "$NEW_MODULES"
 
     # configure MISP
-    lxc exec $CURRENT_MISP -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.Export_services_url" "$NEW_MODULES.lxd"
-    lxc exec $CURRENT_MISP -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.Import_services_url" "$NEW_MODULES.lxd"
-    lxc exec $CURRENT_MISP -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.Enrichment_services_url" "$NEW_MODULES.lxd"
+    lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.Export_services_url" "$NEW_MODULES.lxd"
+    lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.Import_services_url" "$NEW_MODULES.lxd"
+    lxc exec "$CURRENT_MISP" -- sudo -H -u www-data -- /var/www/MISP/app/Console/cake Admin setSetting "Plugin.Enrichment_services_url" "$NEW_MODULES.lxd"
 
-    lxc stop $CURRENT_MODULES
+    lxc stop "$CURRENT_MODULES"
 
     cleanupModules
 }
 
+renameContainer(){
+    local container=$1
+    local new_name=$2
+    if checkLXDContainerRunning "$container"; then
+        lxc stop "$container"
+        lxc mv "$container" "$new_name"
+        lxc start "$new_name"
+    else
+        lxc mv "$container" "$new_name"
+    fi
+}
+
+checkLXDContainerRunning() {
+    local container_name=$1
+    local state
+    state=$(lxc list "^${container_name}$" --format csv -c s)
+
+    if [ "$state" == "RUNNING" ]; then
+        return 0
+    fi
+    return 1
+}
+
+log_to_file() {
+    local log_message=$1
+    local log_file=$2
+
+    # Create dir and log file if it does not exist
+    if [ ! -d "$(dirname "$log_file")" ]; then
+        mkdir -p "$(dirname "$log_file")"
+    fi
+
+    local current_time
+    current_time=$(date "+%Y-%m-%d %H:%M:%S")
+    echo "[$current_time] $log_message" >> "$log_file"
+}
+
 interactiveConfig(){
-    # Installer output
     echo
     echo "################################################################################"
     echo -e "# Welcome to the ${BLUE}MISP-airgap${NC} Update Script                                     #"
@@ -796,11 +892,17 @@ interactiveConfig(){
                 error "Name '$NEW_MISP' has already been used. Please choose a different name."
                 continue
             fi
-            if checkResourceExists "container" "$NEW_MISP"; then
-                error "Container '$NEW_MISP' already exists."
+            if ! checkNamingConvention "$NEW_MISP"; then
                 continue
             fi
-            if ! checkNamingConvention "$NEW_MISP"; then
+            if checkResourceExists "container" "$NEW_MISP"; then
+                warn "Container '$NEW_MISP' already exists."
+                read -r -p "Do you want to proceed anyways (y/n, default: n): " rename_misp
+                RENAME=$(echo "$rename_misp" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+                if $RENAME; then
+                    nameCheckArray[$NEW_MISP]=1
+                    break
+                fi
                 continue
             fi
             nameCheckArray[$NEW_MISP]=1
@@ -841,13 +943,20 @@ interactiveConfig(){
                 error "Name '$NEW_MYSQL' has already been used. Please choose a different name."
                 continue
             fi
-            if checkResourceExists "container" "$NEW_MYSQL"; then
-                error "Container '$NEW_MYSQL' already exists."
-                continue
-            fi
             if ! checkNamingConvention "$NEW_MYSQL"; then
                 continue
             fi
+            if checkResourceExists "container" "$NEW_MYSQL"; then
+                warn "Container '$NEW_MYSQL' already exists."
+                read -r -p "Do you want to proceed anyways (y/n, default: n): " rename_mysql
+                RENAME=$(echo "$rename_mysql" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+                if $RENAME; then
+                    nameCheckArray[$NEW_MYSQL]=1
+                    break
+                fi
+                continue
+            fi
+
             nameCheckArray[$NEW_MYSQL]=1
             break
         done
@@ -887,11 +996,17 @@ interactiveConfig(){
                 error "Name '$NEW_REDIS' has already been used. Please choose a different name."
                 continue
             fi
-            if checkResourceExists "container" "$NEW_REDIS"; then
-                error "Container '$NEW_REDIS' already exists."
+            if ! checkNamingConvention "$NEW_REDIS"; then
                 continue
             fi
-            if ! checkNamingConvention "$NEW_REDIS"; then
+            if checkResourceExists "container" "$NEW_REDIS"; then
+                warn "Container '$NEW_REDIS' already exists."
+                read -r -p "Do you want to proceed anyways (y/n, default: n): " rename_redis
+                RENAME=$(echo "$rename_redis" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+                if $RENAME; then
+                    nameCheckArray[$NEW_REDIS]=1
+                    break
+                fi
                 continue
             fi
             nameCheckArray[$NEW_REDIS]=1
@@ -923,11 +1038,17 @@ interactiveConfig(){
                 error "Name '$NEW_MODULES' has already been used. Please choose a different name."
                 continue
             fi
-            if checkResourceExists "container" "$NEW_MODULES"; then
-                error "Container '$NEW_MODULES' already exists."
+            if ! checkNamingConvention "$NEW_MODULES"; then
                 continue
             fi
-            if ! checkNamingConvention "$NEW_MODULES"; then
+            if checkResourceExists "container" "$NEW_MODULES"; then
+                warn "Container '$NEW_MODULES' already exists."
+                read -r -p "Do you want to proceed anyways (y/n, default: n): " rename_modules
+                RENAME=$(echo "$rename_modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+                if $RENAME; then
+                    nameCheckArray[$NEW_MODULES]=1
+                    break
+                fi
                 continue
             fi
             nameCheckArray[$NEW_MODULES]=1
@@ -975,7 +1096,7 @@ interactiveConfig(){
     fi
 }
 
-# main
+# --------- MAIN ---------
 if [ -z "$1" ]; then
     usage
     exit 0
@@ -1001,9 +1122,11 @@ fi
 
 validateArgs
 
-getAdditionalContainer
+info "Starting update script..."
 
-# Make snapshots
+getAdditionalContainers
+
+info "Make Snapshot of current containers..."
 BACKUP_MISP=$CURRENT_MISP
 BACKUP_MYSQL=$CURRENT_MYSQL
 BACKUP_REDIS=$CURRENT_REDIS
@@ -1017,37 +1140,85 @@ if $CUSTOM_MODULES; then
     lxc snapshot "$BACKUP_MODULES" "$SNAP_NAME"
 fi
 
+# Check renaming before updating
+if [ "$CURRENT_MISP" == "$NEW_MISP" ]; then
+    MISP_NEW_EQ_OLD=true
+fi
+if [ "$CURRENT_MYSQL" == "$NEW_MYSQL" ]; then
+    MYSQL_NEW_EQ_OLD=true
+fi
+if [ "$CURRENT_REDIS" == "$NEW_REDIS" ]; then
+    REDIS_NEW_EQ_OLD=true
+fi
+if [ "$CURRENT_MODULES" == "$NEW_MODULES" ]; then
+    MODULES_NEW_EQ_OLD=true
+fi
+
 trap 'interrupt' INT
 trap 'err ${LINENO}' ERR
 
+info "Update containers..."
+creation_date=$(date "+%Y-%m-%d-%H-%M-%S")
 if $MISP; then
+    if $MISP_NEW_EQ_OLD; then
+        info "Renaming container $CURRENT_MISP to updated-$ORIGINAL_MISP-$creation_date"
+        updated_container_name="updated-$ORIGINAL_MISP-$creation_date"
+        renameContainer "$CURRENT_MISP" "$updated_container_name"
+        log_to_file "Renamed container $CURRENT_MISP to $updated_container_name" "$NAMING_LOG_FILE"
+        CURRENT_MISP=$updated_container_name
+        RENAMED_MISP=true
+    fi
     updateMISP
     CURRENT_MISP=$NEW_MISP
 fi
 if $MYSQL; then
+    if $MYSQL_NEW_EQ_OLD; then
+        info "Renaming container $CURRENT_MYSQL to updated-$ORIGINAL_MYSQL-$creation_date"
+        updated_container_name="updated-$ORIGINAL_MYSQL-$creation_date"
+        renameContainer "$CURRENT_MYSQL" "$updated_container_name"
+        log_to_file "Renamed container $CURRENT_MYSQL to $updated_container_name" "$NAMING_LOG_FILE"
+        CURRENT_MYSQL=$updated_container_name
+        RENAMED_MYSQL=true
+    fi
     updateMySQL
     CURRENT_MYSQL=$NEW_MYSQL
 fi
 if $REDIS; then
+    if $REDIS_NEW_EQ_OLD; then
+        info "Renaming container $CURRENT_REDIS to updated-$ORIGINAL_REDIS-$creation_date"
+        updated_container_name="updated-$ORIGINAL_REDIS-$creation_date"
+        renameContainer "$CURRENT_REDIS" "$updated_container_name"
+        log_to_file "Renamed container $CURRENT_REDIS to $updated_container_name" "$NAMING_LOG_FILE"
+        CURRENT_REDIS=$updated_container_name
+        RENAMED_REDIS=true
+    fi
     updateRedis
     CURRENT_REDIS=$NEW_REDIS
 fi
 if $MODULES; then
+    if $MODULES_NEW_EQ_OLD; then
+        info "Renaming container $CURRENT_MODULES to updated-$ORIGINAL_MODULES-$creation_date"
+        updated_container_name="updated-$ORIGINAL_MODULES-$creation_date"
+        renameContainer "$CURRENT_MODULES" "$updated_container_name"
+        log_to_file "Renamed container $CURRENT_MODULES to $updated_container_name" "$NAMING_LOG_FILE"
+        CURRENT_MODULES=$updated_container_name
+        RENAMED_MODULES=true
+    fi
     updateModules
     CURRENT_MODULES=$NEW_MODULES
 fi
 
 # Restart worker
-lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque stop --all
-lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue default
-lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue prio
-lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue cache
-lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue email
-lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue update
-lxc exec $CURRENT_MISP  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque startscheduler --interval 5
+lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque reset
+lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue default
+lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue prio
+lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue cache
+lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue email
+lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue update
+lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque startscheduler --interval 5
 
 # Print info
-misp_ip=$(lxc list $CURRENT_MISP --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
+misp_ip=$(lxc list "$CURRENT_MISP" --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
 echo "--------------------------------------------------------------------------------------------"
 echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
 echo "--------------------------------------------------------------------------------------------"
