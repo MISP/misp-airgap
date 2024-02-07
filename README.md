@@ -194,6 +194,19 @@ The script will use the following naming convention for renamed containers:
 
 All changes made by the script will be logged in the `naming.log` file in the `logs/` directory.
 
+## Container Management
+Installing and updating MISP using the MISP airgap project creates and manages containers using LXD. The following commands can be used to manage the containers created by the installation script. If you are not familiar with LXD, you can find more information in the [LXD documentation](https://documentation.ubuntu.com/lxd/en/latest/).
+
+| Command                                    | Description                                 |
+| ------------------------------------------ | ------------------------------------------- |
+| `lxc list`                                 | List all containers in the current project. |
+| `lxc start <container_name>`               | Start a container.                          |
+| `lxc stop <container_name>`                | Stop a container.                           |
+| `lxc project list`                         | List all projects.                          |
+| `lxc project switch <project>`             | Switch to a different project.              |
+| `lxc snapshot <container> <snapshot_name>` | Create a snapshot of a container.           |
+| `lxc restore <container> <snapshot_name>`  | Restore a container to a snapshot.          |
+
 ## Build
 If you want to build the images yourself, you can use the `build.sh` script in the `build/` directory. This is completely optional, as the images are already built and available for download. 
 
