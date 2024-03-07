@@ -70,6 +70,14 @@ class Repo:
             except Exception as e:
                 print(f"Failed to run {cmd} for {self.id}: {e}")
 
+    def cleanup(self, num_to_keep: int) -> None:
+        files = os.listdir(self.outputdir)
+        repo_images = [f for f in files if f.startswith(self.name)]
+        if len(repo_images) > num_to_keep:
+            repo_images.sort(key=lambda x: os.path.getmtime(os.path.join(self.outputdir, x)))
+            for image in repo_images[:-num_to_keep]:
+                os.remove(os.path.join(self.outputdir, image))
+
 class GitHub(Repo):
     """Class for tracking GitHub repositories."""
 
@@ -126,8 +134,10 @@ def main():
     while True:
         for repo in repos:
             repo.build()
+            repo.cleanup(num_to_keep=3)
         for package in aptpkg:
             package.build()
+            package.cleanup(num_to_keep=3)
         sleep(config["check_interval"])
     
 if __name__ == "__main__":
