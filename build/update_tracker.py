@@ -3,6 +3,7 @@ import requests
 import subprocess
 import re
 import os
+import shutil
 from time import sleep
 from typing import List, Optional
 from pathlib import Path
@@ -76,7 +77,7 @@ class Repo:
         if len(repo_images) > num_to_keep:
             repo_images.sort(key=lambda x: os.path.getmtime(os.path.join(self.outputdir, x)))
             for image in repo_images[:-num_to_keep]:
-                os.remove(os.path.join(self.outputdir, image))
+                shutil.rmtree(os.path.join(self.outputdir, image))
 
 class GitHub(Repo):
     """Class for tracking GitHub repositories."""
