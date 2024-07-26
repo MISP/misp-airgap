@@ -321,3 +321,19 @@ sudo bash update.sh
 ```
 
 > Note: Using the update.sh script is especially useful for comprehensive updates, as it automates the process of applying configuration changes and restarting the service.
+
+## Maintenance
+
+A few useful commands to manage the LXC images.
+
+* Open a shell on the MISP image:
+
+```bash
+lxc exec misp-<image_date> bash
+```
+
+* reset the password of the MISP user:
+
+```bash
+sudo -u www-data /var/www/MISP/app/Console/cake user change_pw admin@admin.test Password1234
+```
