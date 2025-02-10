@@ -8,6 +8,10 @@ RED='\033[0;31m'
 VIOLET='\033[0;35m'
 NC='\033[0m' # No Color
 
+# TODO: Add function to add line to /etc/hosts to map container IP to misp.loca l
+
+# TODO: Add the updateJason from the original install script after DB setup
+
 setVars(){
     WWW_USER="www-data"
     SUDO_WWW="sudo -H -u ${WWW_USER} "
@@ -811,6 +815,23 @@ initializeDB(){
         if [ $table_count -lt 73 ]; then
             echo "Database misp is empty, importing tables from misp container ..."
             ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $PATH_TO_MISP/INSTALL/MYSQL.sql"
+            # HERE
+            # sudo mysql $DBCONN_ADMIN_STRING -e "CREATE DATABASE ${DBNAME};"  &>> $logfile
+            # sudo mysql $DBCONN_ADMIN_STRING -e "CREATE USER '${DBUSER_MISP}'@'localhost' IDENTIFIED BY '${DBPASSWORD_MISP}';"  &>> $logfile
+            # sudo mysql $DBCONN_ADMIN_STRING -e "GRANT USAGE ON *.* to '${DBUSER_MISP}'@'localhost';"  &>> $logfile
+            # sudo mysql $DBCONN_ADMIN_STRING -e "GRANT ALL PRIVILEGES on ${DBNAME}.* to '${DBUSER_MISP}'@'localhost';"  &>> $logfile
+            # sudo mysql $DBCONN_ADMIN_STRING -e "FLUSH PRIVILEGES;"  &>> $logfile
+            # mysql $DBCONN_MISP_STRING $DBNAME < "${MISP_PATH}/INSTALL/MYSQL.sql"  &>> $logfile
+
+
+
+            # DBCONN_ADMIN_STRING = "--port 3306 -h $MYSQL_CONTAINER.lxd -u $MYSQL_USER -p $MYSQL_ROOT_PASSWORD"
+            # DBCONN_MISP_STRING = "--port 3306 -h $MYSQL_CONTAINER.lxd -u $MYSQL_USER -p $MYSQL_PASSWORD" 
+            # lxc exec $MYSQL_CONTAINER -- sudo mysql $DBCONN_ADMIN_STRING -e "CREATE DATABASE ${MYSQL_DATABASE};"
+            #
+            
+
+    
         else
             echo "Database misp available"
         fi

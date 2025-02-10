@@ -175,6 +175,10 @@ error_check "Basic dependencies installation"
 # install_packages ${packages[@]}
 # error_check "MariaDB installation"
 
+print_status "Installing MariaDB Client..."
+declare -a packages=( mariadb-client );
+install_packages ${packages[@]}
+error_check "MariaDB Client installation"
 
 print_status "Installing PHP and the list of required extensions..."
 declare -a packages=( redis-server php8.3 php8.3-cli php8.3-dev php8.3-xml php8.3-mysql php8.3-opcache php8.3-readline php8.3-mbstring php8.3-zip \
