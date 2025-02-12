@@ -434,7 +434,7 @@ getCommitID(){
     current_branch=$(lxc exec "$container" -- cat "$path_to_repo"/.git/HEAD | awk '{print $2}')
     local commit_id
     commit_id=$(lxc exec "$container" -- cat "$path_to_repo"/.git/"$current_branch")
-    echo "$commit_id"git push --set-upstream origin misp2.5
+    echo "$commit_id"
 }
 
 installRedisApt(){
