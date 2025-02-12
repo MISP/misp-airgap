@@ -487,8 +487,8 @@ restoreBackup(){
 }
 
 getAdditionalContainers(){
-    CURRENT_MYSQL=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'host' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed "s/'.lxd'//g" | sed 's/[^a-zA-Z0-9-]//g'")
-
+    CURRENT_MYSQL=$(lxc exec "$CURRENT_MISP" -- bash -c "grep \"'host' =>\" /var/www/MISP/app/Config/database.php | sed -E \"s/.*'host' => '([^']+)\.lxd'.*/\1/\"")
+ 
     if ! checkLXDContainerRunning "$CURRENT_MYSQL"; then
         error "Container $CURRENT_MYSQL is not running!"
     fi
@@ -670,7 +670,7 @@ updateMySQL(){
     trap 'err ${LINENO}' ERR
     info "Update MySQL..."
     local profile
-    profile=$(lxc config show "$CURRENT_MYSQL" | yq eval '.profiles | join(" ")' -)
+    profile=$(lxc config show "$CURRENT_MYSQL" | yq '.profiles[0]')
     lxc image import "$MYSQL_IMAGE" --alias "$MYSQL_IMAGE_NAME"
     lxc launch "$MYSQL_IMAGE_NAME" "$NEW_MYSQL" --profile="$profile"
     sleep 2

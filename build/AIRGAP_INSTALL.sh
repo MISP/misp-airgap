@@ -13,7 +13,6 @@ random_string() {
 PASSWORD="$(random_string)"
 MISP_DOMAIN='misp.local'
 PATH_TO_SSL_CERT=''
-# Change to yes for lxc?
 INSTALL_SSDEEP='n' # y/n, if you want to install ssdeep, set to 'y', however, this will require the installation of make
 
 ## optional settings
@@ -170,11 +169,6 @@ declare -a packages=( git curl python3 python3-pip python3-virtualenv apache2 zi
 install_packages ${packages[@]}
 error_check "Basic dependencies installation"
 
-# print_status "Installing MariaDB..."
-# declare -a packages=( mariadb-server mariadb-client );
-# install_packages ${packages[@]}
-# error_check "MariaDB installation"
-
 print_status "Installing MariaDB Client..."
 declare -a packages=( mariadb-client );
 install_packages ${packages[@]}
@@ -212,30 +206,8 @@ sudo sed -i "s/^\(session.use_strict_mode\).*/\1 = 1/" $PHP_INI
 sudo sed -i "s/^\(session.save_handler\).*/\1 = redis/" $PHP_INI
 sudo sed -i "/session.save_handler/a session.save_path = 'tcp:\/\/localhost:6379'/" $PHP_INI
 
-
-
-# TODO: Take a look at this -> move to DB container? 
-
-# MYCNF="/etc/mysql/mariadb.conf.d/50-server.cnf"
-# We go for an innodb buffer pool size of 50% of the available memory
-
-# Check for cgroup memory limits, don't rely on /proc/meminfo in an LXC container with unbound memory limits
-# Thanks to Sascha Rommelfangen (@rommelfs) for the hint
-# CGROUPMEMORYHIGHPATH="/sys/fs/cgroup/memory.high"
-# if [ -f $CGROUPMEMORYHIGHPATH ] && [[ "cat ${CGROUPMEMORYHIGHPATH}" == "max" ]]; then
-#     INNODBBUFFERPOOLSIZE='2048M'
-# else
-#     INNODBBUFFERPOOLSIZE=$(grep MemTotal /proc/meminfo | awk '{print int($2 / 2048)}')'M'
-# fi
-#
-# sudo sed -i "/\[mariadb\]/a innodb_buffer_pool_size = ${INNODBBUFFERPOOLSIZE}" $MYCNF
-# sudo sed -i '/\[mariadb\]/a innodb_io_capacity = 1000' $MYCNF
-# sudo sed -i '/\[mariadb\]/a innodb_read_io_threads = 16' $MYCNF
-
 sudo service apache2 restart
 error_check "Apache restart"
-# sudo service mysql restart
-# error_check "MySQL restart"
 
 # Probably only PHP need to be cofnigured?
 print_ok "PHP and MySQL configured..."
@@ -285,53 +257,8 @@ cd ${MISP_PATH}/app
 sudo -u ${APACHE_USER} composer install --no-dev --no-interaction --prefer-dist &>> $logfile
 error_check "MISP composer dependencies installation"
 
-print_status "Create DB and user for MISP as well as importing the basic MISP schema..."
-# DBUSER_ADMIN_STRING=''
-# if [ "$DBUSER_ADMIN" != 'root' ]; then
-#     DBUSER_ADMIN_STRING='-u '"${DBUSER_ADMIN}"
-# fi
-#
-# DBPASSWORD_ADMIN_STRING=''
-# if [ ! -z "${DBPASSWORD_ADMIN}" ]; then
-#     DBPASSWORD_ADMIN_STRING='-p'"${DBPASSWORD_ADMIN}"
-# fi
-#
-# DBUSER_MISP_STRING=''
-# if [ ! -z "${DBUSER_MISP}" ]; then
-#     DBUSER_MISP_STRING='-u '"${DBUSER_MISP}"
-# fi
-#
-# DBPASSWORD_MISP_STRING=''
-# if [ ! -z "${DBPASSWORD_MISP}" ]; then
-#     DBPASSWORD_MISP_STRING='-p'"${DBPASSWORD_MISP}"
-# fi
-#
-# DBHOST_STRING=''
-# if [ ! -z "$DBHOST" ] && [ "$DBHOST" != "localhost" ]; then
-#     DBHOST_STRING="-h ${DBHOST}"
-# fi
-#
-# DBPORT_STRING=''
-# if [ "$DBPORT" != 3306 ]; then
-#     DBPORT_STRING='--port '"${DBPORT}"
-# fi
-# DBCONN_ADMIN_STRING="${DBPORT_STRING} ${DBHOST_STRING} ${DBUSER_ADMIN_STRING} ${DBPASSWORD_ADMIN_STRING}"
-# DBCONN_MISP_STRING="${DBPORT_STRING} ${DBHOST_STRING} ${DBUSER_MISP_STRING} ${DBPASSWORD_MISP_STRING}"
-
-
-# TODO: move this to DB container
-# sudo mysql $DBCONN_ADMIN_STRING -e "CREATE DATABASE ${DBNAME};"  &>> $logfile
-# sudo mysql $DBCONN_ADMIN_STRING -e "CREATE USER '${DBUSER_MISP}'@'localhost' IDENTIFIED BY '${DBPASSWORD_MISP}';"  &>> $logfile
-# sudo mysql $DBCONN_ADMIN_STRING -e "GRANT USAGE ON *.* to '${DBUSER_MISP}'@'localhost';"  &>> $logfile
-# sudo mysql $DBCONN_ADMIN_STRING -e "GRANT ALL PRIVILEGES on ${DBNAME}.* to '${DBUSER_MISP}'@'localhost';"  &>> $logfile
-# sudo mysql $DBCONN_ADMIN_STRING -e "FLUSH PRIVILEGES;"  &>> $logfile
-# mysql $DBCONN_MISP_STRING $DBNAME < "${MISP_PATH}/INSTALL/MYSQL.sql"  &>> $logfile
-# error_check "MISP database schema import"
-
 print_status "Moving and configuring MISP php config files.."
 
-
-# TODO: Take a look at this to get configuration locations
 cd ${MISP_PATH}/app/Config
 cp -a bootstrap.default.php bootstrap.php
 cp -a database.default.php database.php
@@ -345,7 +272,6 @@ sed -i "s#'database' => 'misp'#'database' => '$DBNAME'#" database.php
 sed -i "s#Rooraenietu8Eeyo<Qu2eeNfterd-dd+#$(random_string)#" config.php
 
 print_ok "MISP php config files moved and configured."
-
 
 # Generate ssl certificate
 if [ -z "${PATH_TO_SSL_CERT}" ]; then
@@ -399,31 +325,6 @@ print_status "Creating Apache configuration file for MISP..."
   </VirtualHost>" | sudo tee /etc/apache2/sites-available/misp-ssl.conf  &>> $logfile
 
 error_check "Apache configuration file creation"  &>> $logfile
-
-
-# TODO: take a look at this -> maybe only do later after deploying
-# print_status "Running MISP updates"
-#
-# sudo -u ${APACHE_USER} ${MISP_PATH}/app/Console/cake Admin setSetting "MISP.osuser" ${APACHE_USER} &>> $logfile
-# sudo -u ${APACHE_USER} ${MISP_PATH}/app/Console/cake Admin runUpdates &>> $logfile
-# sudo -u ${APACHE_USER} ${MISP_PATH}/app/Console/cake User init | sudo tee /tmp/misp_user_key.txt  &>> $logfile
-# sudo -u ${APACHE_USER} ${MISP_PATH}/app/Console/cake User change_pw 'admin@admin.test' ${PASSWORD} &>> $logfile
-# MISP_USER_KEY=`cat /tmp/misp_user_key.txt`
-# rm -f /tmp/misp_user_key.txt
-#
-# print_ok "MISP updated."
-
-
-# TODO: take a look at this and maybe only do later in deployment
-# print_status "Generating PGP key"
-# # The email address should match the one set in the config.php
-# # set in the configuration menu in the administration menu configuration file
-#
-# sudo -u ${APACHE_USER} gpg --homedir $MISP_PATH/.gnupg --quick-generate-key --batch --passphrase $GPG_PASSPHRASE ${GPG_EMAIL_ADDRESS} ed25519 sign never  &>> $logfile
-# error_check "PGP key generation"
-# # Export the public key to the webroot
-# sudo -u ${APACHE_USER} gpg --homedir $MISP_PATH/.gnupg --export --armor ${GPG_EMAIL_ADDRESS} | sudo -u ${APACHE_USER} tee $MISP_PATH/app/webroot/gpg.asc  &>> $logfile
-# error_check "PGP key export"
 
 print_status "Setting up Python environment for MISP"
 
@@ -655,12 +556,6 @@ error_check "Background workers setup"
 
 print_ok "Settings configured."
 
-
-# TODO: Do this later?
-# print_status "Ingesting JSON structures"
-# sudo -u ${APACHE_USER} ${MISP_PATH}/app/Console/cake Admin updateJSON &>> $logfile
-# error_check "JSON structures ingestion"
-
   # Enable modules, settings, and default of SSL in Apache
   sudo a2dismod status &>> $logfile
   sudo a2enmod ssl &>> $logfile
@@ -683,7 +578,7 @@ print_status "Finalising MISP setup..."
 sudo chown -R ${APACHE_USER}:${APACHE_USER} ${MISP_PATH} &>> $logfile
 sudo chown -R ${APACHE_USER}:${APACHE_USER} ${MISP_PATH}/.git &>> $logfile
 
-save_settings
+#save_settings
 
 print_notification "You can now access your MISP instance at https://${MISP_DOMAIN}"
 print_notification "The default admin credentials are:"
