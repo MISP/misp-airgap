@@ -1,0 +1,15 @@
+[Unit]
+Description=Valkey - A high-performance key-value store
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/valkey-server /etc/valkey/valkey.conf
+ExecStop=/usr/local/bin/valkey-cli shutdown
+Restart=always
+User=root
+Group=root
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+
