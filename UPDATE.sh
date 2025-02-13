@@ -584,6 +584,8 @@ updateMISP(){
     lxc file pull "$CURRENT_MISP"/var/www/MISP/.gnupg/pubring.kbx "$TEMP"/.gnupg/ -v
     lxc file pull "$CURRENT_MISP"/var/www/MISP/.gnupg/pubring.kbx~ "$TEMP"/.gnupg/ -v
     lxc file pull "$CURRENT_MISP"/var/www/MISP/.gnupg/trustdb.gpg "$TEMP"/.gnupg/ -v
+    # Supervisor conf
+    lxc file pull "$CURRENT_MISP"/etc/supervisor/supervisord.conf "$TEMP"/supervisor/ -v
 
     info "Get additional config..."
     MYSQL_USER=$(lxc exec "$CURRENT_MISP" -- bash -c "grep 'login' /var/www/MISP/app/Config/database.php | awk '{print \$3}' | sed 's/[^a-zA-Z0-9]//g'")
@@ -600,7 +602,7 @@ updateMISP(){
     # Create new instance
     info "Create new MISP instance..."
     local profile
-    profile=$(lxc config show "$CURRENT_MISP" | yq eval '.profiles | join(" ")' -)
+    profile=$(lxc config show "$CURRENT_MISP" | yq '.profiles[0]' | tr -d '"')
     lxc launch "$MISP_IMAGE_NAME" "$NEW_MISP" --profile="$profile"
 
     # Transfer files to new instance
@@ -614,6 +616,8 @@ updateMISP(){
     lxc file push -r "$TEMP"/View/Emails/text/Custom "$NEW_MISP"/var/www/MISP/app/View/Emails/text/ -v
     lxc file push "$TEMP"/Plugin/CakeResque/Config/config.php "$NEW_MISP"/var/www/MISP/app/Plugin/CakeResque/Config/ -v
     lxc file push -r "$TEMP"/.gnupg "$NEW_MISP"/var/www/MISP/ -v
+    # Supervisor conf
+    lxc file push "$TEMP"/supervisor/supervisord.conf "$NEW_MISP"/etc/supervisor/ -v
 
     # Set permissions
     lxc exec "$NEW_MISP" -- sudo chown -R www-data:www-data $PATH_TO_MISP
@@ -670,7 +674,7 @@ updateMySQL(){
     trap 'err ${LINENO}' ERR
     info "Update MySQL..."
     local profile
-    profile=$(lxc config show "$CURRENT_MYSQL" | yq '.profiles[0]')
+    profile=$(lxc config show "$CURRENT_MYSQL" | yq '.profiles[0]'| tr -d '"')
     lxc image import "$MYSQL_IMAGE" --alias "$MYSQL_IMAGE_NAME"
     lxc launch "$MYSQL_IMAGE_NAME" "$NEW_MYSQL" --profile="$profile"
     sleep 2
@@ -741,7 +745,7 @@ updateRedis(){
     trap 'err ${LINENO}' ERR
     info "Update Redis..."
     local profile
-    profile=$(lxc config show "$CURRENT_REDIS" | yq eval '.profiles | join(" ")' -)
+    profile=$(lxc config show "$CURRENT_REDIS" | yq '.profiles[0]'| tr -d '"')
     lxc image import "$REDIS_IMAGE" --alias "$REDIS_IMAGE_NAME"
     lxc launch "$REDIS_IMAGE_NAME" "$NEW_REDIS" --profile="$profile"
 
@@ -781,7 +785,7 @@ updateModules(){
     trap 'err ${LINENO}' ERR
     info "Update Modules..."
     local profile
-    profile=$(lxc config show "$CURRENT_MODULES" | yq eval '.profiles | join(" ")' -)
+    profile=$(lxc config show "$CURRENT_MODULES" | yq '.profiles[0]'| tr -d '"')
     lxc image import "$MODULES_IMAGE" --alias "$MODULES_IMAGE_NAME"
     lxc launch "$MODULES_IMAGE_NAME" "$NEW_MODULES" --profile="$profile"
     sleep 5
@@ -1208,17 +1212,21 @@ if $MODULES; then
     CURRENT_MODULES=$NEW_MODULES
 fi
 
-# Restart worker
-lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque reset
-lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue default
-lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue prio
-lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue cache
-lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue email
-lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque start --interval 5 --queue update
-lxc exec "$CURRENT_MISP"  -- sudo -H -u "www-data" -- ${PATH_TO_MISP}/app/Console/cake CakeResque.CakeResque startscheduler --interval 5
+
+# Restart worker supervisor
+lxc exec $CURRENT_MISP -- systemctl restart supervisor
 
 # Print info
 misp_ip=$(lxc list "$CURRENT_MISP" --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
+
+echo "███    ███ ██ ███████ ██████         █████  ██ ██████   ██████   █████  ██████  "
+echo "████  ████ ██ ██      ██   ██       ██   ██ ██ ██   ██ ██       ██   ██ ██   ██ "
+echo "██ ████ ██ ██ ███████ ██████  █████ ███████ ██ ██████  ██   ███ ███████ ██████  "
+echo "██  ██  ██ ██      ██ ██            ██   ██ ██ ██   ██ ██    ██ ██   ██ ██      "
+echo "██      ██ ██ ███████ ██            ██   ██ ██ ██   ██  ██████  ██   ██ ██      "
 echo "--------------------------------------------------------------------------------------------"
 echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
+echo "--------------------------------------------------------------------------------------------"
+echo "Hint: Be aware that the IP address of your container has changed! You may need to adjust some"
+echo "configuration (e.g. /etc/hosts)"
 echo "--------------------------------------------------------------------------------------------"
