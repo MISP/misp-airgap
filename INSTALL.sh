@@ -8,54 +8,14 @@ RED='\033[0;31m'
 VIOLET='\033[0;35m'
 NC='\033[0m' # No Color
 
-setVars(){
-    WWW_USER="www-data"
-    SUDO_WWW="sudo -H -u ${WWW_USER} "
-    PATH_TO_MISP="/var/www/MISP"
-    CAKE="${PATH_TO_MISP}/app/Console/cake"
-    MISP_BASEURL="${MISP_BASEURL:-""}"
-    LXC_MISP="lxc exec ${MISP_CONTAINER}"
-    REDIS_CONTAINER_PORT="6380"
-
-    INNODB_BUFFER_POOL_SIZE="2147483648"
-    INNODB_CHANGE_BUFFERING="none"
-    INNODB_IO_CAPACITY="1000"
-    INNODB_IO_CAPACITY_MAX="2000"
-    INNODB_LOG_FILE_SIZE="629145600"
-    INNODB_LOG_FILES_IN_GROUP="2"
-    INNODB_READ_IO_THREADS="16"
-    INNODB_STATS_PERISTENT="ON"
-    INNODB_WRITE_IO_THREADS="4"
-}
-
-setDefaultArgs(){
-    default_confirm="no"
-    default_prod="no"
-    default_misp_project=$(generateName "misp-project")
-
-    default_misp_img=""
-    default_misp_name=$(generateName "misp")
-
-    default_mysql_img=""
-    default_mysql_name=$(generateName "mysql")
-    default_mysql_user="misp"
-    default_mysql_pwd="misp"
-    default_mysql_db="misp"
-    default_mysql_root_pwd="misp"
-
-    default_redis_img=""
-    default_redis_name=$(generateName "redis")
-
-    default_modules="yes"
-    default_modules_img=""
-    default_modules_name=$(generateName "modules")
-
-    default_app_partition=""
-    default_db_partition=""
-}
+# ========================== Helper Functions ==========================
 
 getPHPVersion(){
     ${LXC_MISP} -- bash -c "php -v | head -n 1 | awk '{print \$2}' | cut -d '.' -f 1,2"
+}
+
+random_string() {
+    cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1
 }
 
 info () {
@@ -72,265 +32,6 @@ error() {
 warn() {
     local msg=$1
     echo -e "${YELLOW}Warning: $msg${NC}" > /dev/tty
-}
-
-coreCAKE () {
-    # IF you have logged in prior to running this, it will fail but the fail is NON-blocking
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} userInit -q
-
-    # This makes sure all Database upgrades are done, without logging in.
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin runUpdates
-
-    # The default install is Python >=3.6 in a virtualenv, setting accordingly
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.python_bin" "${PATH_TO_MISP}/venv/bin/python"
-
-    # Tune global time outs
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Session.autoRegenerate" 0
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Session.timeout" 600
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Session.cookieTimeout" 3600
-    
-    # Set the default temp dir
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.tmpdir" "${PATH_TO_MISP}/app/tmp"
-
-    # Change base url, either with this CLI command or in the UI
-    [[ ! -z ${MISP_BASEURL} ]] && ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Baseurl $MISP_BASEURL
-    [[ ! -z ${MISP_BASEURL} ]] && ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.external_baseurl" ${MISP_BASEURL}
-
-    # Enable GnuPG
-    echo $GPG_EMAIL_ADDRESSS
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.email" "${GPG_EMAIL_ADDRESS}" # Error
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.homedir" "${PATH_TO_MISP}/.gnupg"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.password" "${GPG_PASSPHRASE}"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.obscure_subject" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.key_fetching_disabled" false
-    # FIXME: what if we have not gpg binary but a gpg2 one?
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.binary" "$(which gpg)"
-
-    # LinOTP
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.enabled" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.baseUrl" "https://<your-linotp-baseUrl>"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.realm" "lino"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.verifyssl" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.mixedauth" false
-
-    # Enable installer org and tune some configurables
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.host_org_id" 1
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.email" "info@admin.test"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_emailing" true --force
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.contact" "info@admin.test"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disablerestalert" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.showCorrelationsOnIndex" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.default_event_tag_collection" 0
-
-    # Provisional Cortex tunes
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_services_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_services_url" "http://127.0.0.1"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_services_port" 9000
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_timeout" 120
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_authkey" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_verify_peer" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_verify_host" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_allow_self_signed" true
-
-    # Provisional Action tunes
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_url" "http://127.0.0.1"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_port" 6666
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_timeout" 10
-
-    # Various plugin sightings settings
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_policy" 0
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_anonymise" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_anonymise_as" 1
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_range" 365
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_sighting_db_enable" false
-
-    # TODO: Fix the below list
-    # Set API_Required modules to false
-    PLUGS=(Plugin.ElasticSearch_logging_enable
-            Plugin.S3_enable)
-    for PLUG in "${PLUGS[@]}"; do
-        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting ${PLUG} false 2> /dev/null
-    done
-
-    # Plugin CustomAuth tuneable
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.CustomAuth_disable_logout" false
-
-    # RPZ Plugin settings
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_policy" "DROP"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_walled_garden" "127.0.0.1"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_serial" "\$date00"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_refresh" "2h"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_retry" "30m"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_expiry" "30d"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_minimum_ttl" "1h"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_ttl" "1w"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_ns" "localhost."
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_ns_alt" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_email" "root.localhost"
-
-    # Kafka settings
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_brokers" "kafka:9092"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_rdkafka_config" "/etc/rdkafka.ini"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_include_attachments" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_notifications_topic" "misp_event"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_publish_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_publish_notifications_topic" "misp_event_publish"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_notifications_topic" "misp_object"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_reference_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_reference_notifications_topic" "misp_object_reference"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_attribute_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_attribute_notifications_topic" "misp_attribute"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_shadow_attribute_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_shadow_attribute_notifications_topic" "misp_shadow_attribute"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_tag_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_tag_notifications_topic" "misp_tag"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_sighting_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_sighting_notifications_topic" "misp_sighting"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_user_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_user_notifications_topic" "misp_user"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_organisation_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_organisation_notifications_topic" "misp_organisation"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_audit_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_audit_notifications_topic" "misp_audit"
-
-    # ZeroMQ settings
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_host" "127.0.0.1"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_port" 50000
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$REDIS_CONTAINER.lxd"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $REDIS_CONTAINER_PORT
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_database" 1
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_namespace" "mispq"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_event_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_object_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_object_reference_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_attribute_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_sighting_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_user_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_organisation_notifications_enable" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_include_attachments" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_tag_notifications_enable" false
-
-    # Force defaults to make MISP Server Settings less RED
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.language" "eng"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.proposals_block_attributes" false
-
-  # Redis block
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_database" 13
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_password" ""
-
-    # Force defaults to make MISP Server Settings less YELLOW
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.ssdeep_correlation_threshold" 40
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.extended_alert_subject" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.default_event_threat_level" 4
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.newUserText" "Dear new MISP user,\\n\\nWe would hereby like to welcome you to the \$org MISP community.\\n\\n Use the credentials below to log into MISP at \$misp, where you will be prompted to manually change your password to something of your own choice.\\n\\nUsername: \$username\\nPassword: \$password\\n\\nIf you have any questions, don't hesitate to contact us at: \$contact.\\n\\nBest regards,\\nYour \$org MISP support team"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.passwordResetText" "Dear MISP user,\\n\\nA password reset has been triggered for your account. Use the below provided temporary password to log into MISP at \$misp, where you will be prompted to manually change your password to something of your own choice.\\n\\nUsername: \$username\\nYour temporary password: \$password\\n\\nIf you have any questions, don't hesitate to contact us at: \$contact.\\n\\nBest regards,\\nYour \$org MISP support team"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.enableEventBlocklisting" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.enableOrgBlocklisting" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_client_ip" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_auth" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_user_ips" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_user_ips_authkeys" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disableUserSelfManagement" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_user_login_change" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_user_password_change" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_user_add" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_event_alert" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_event_alert_tag" "no-alerts=\"true\""
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_old_event_alert" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_old_event_alert_age" ""
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_old_event_alert_by_date" ""
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_republish_ban" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_republish_ban_threshold" 5
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_republish_ban_refresh_on_retry" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.incoming_tags_disabled_by_default" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.maintenance_message" "Great things are happening! MISP is undergoing maintenance, but will return shortly. You can contact the administration at \$email."
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.footermidleft" "This is an initial install"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.footermidright" "Please configure and harden accordingly"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.welcome_text_top" "Initial Install, please configure"
-    # TODO: Make sure $FLAVOUR is correct
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.welcome_text_bottom" "Welcome to MISP on ${FLAVOUR}, change this message in MISP Settings"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.attachments_dir" "${PATH_TO_MISP}/app/files"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.download_attachments_on_load" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_metadata_only" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.title_text" "MISP"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.terms_download" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.showorgalternate" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_view_filter_fields" "id, uuid, value, comment, type, category, Tag.name"
-
-    # Force defaults to make MISP Server Settings less GREEN
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "debug" 0
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.auth_enforced" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.log_each_individual_auth_fail" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.rest_client_baseurl" ""
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.advanced_authkeys" false
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.password_policy_length" 12
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.password_policy_complexity" '/^((?=.*\d)|(?=.*\W+))(?![\n])(?=.*[A-Z])(?=.*[a-z]).*$|.{16,}/'
-
-    # Appease the security audit, #hardening
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.disable_browser_cache" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.check_sec_fetch_site_header" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.csp_enforce" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.advanced_authkeys" true
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.do_not_log_authkeys" true
-
-    # Appease the security audit, #loggin
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.username_in_response_header" true
-
-}
-
-updateGOWNT () {
-    # Update the galaxies…
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateGalaxies
-    # Updating the taxonomies…
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateTaxonomies
-    # Updating the warning lists…
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateWarningLists
-    # Updating the notice lists…
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateNoticeLists
-    # Updating the object templates…
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateObjectTemplates "1337"
-}
-
-setupGnuPG() {
-
-    GPG_REAL_NAME="Autogenerated Key"
-    GPG_COMMENT="WARNING: MISP AutoGenerated Key consider this Key VOID!"
-    GPG_EMAIL_ADDRESS="admin@admin.test"
-    GPG_KEY_LENGTH="3072"
-    GPG_PASSPHRASE="$(openssl rand -hex 32)"
-
-    # Check if the .gnupg directory exists on the LXD container
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "[ -d $PATH_TO_MISP/.gnupg ]" && {
-        echo "Existing key found on the container. Deleting..."
-        ${LXC_MISP} -- sudo -u www-data -H sh -c "rm -rf $PATH_TO_MISP/.gnupg"
-        echo "Existing key deleted"
-    }
-
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "echo \"%echo Generating a default key
-        Key-Type: default
-        Key-Length: $GPG_KEY_LENGTH
-        Subkey-Type: default
-        Name-Real: $GPG_REAL_NAME
-        Name-Comment: $GPG_COMMENT
-        Name-Email: $GPG_EMAIL_ADDRESS
-        Expire-Date: 0
-        Passphrase: $GPG_PASSPHRASE
-        # Do a commit here, so that we can later print \"done\"
-        %commit
-    %echo done\" > /tmp/gen-key-script"
-
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $PATH_TO_MISP/.gnupg --batch --gen-key /tmp/gen-key-script"
-
-    # Export the public key to the webroot
-    ${LXC_MISP} -- sudo -u www-data -H sh -c "gpg --homedir $PATH_TO_MISP/.gnupg --export --armor $GPG_EMAIL_ADDRESS | tee $PATH_TO_MISP/app/webroot/gpg.asc"
-    ${LXC_MISP} -- rm /tmp/gen-key-script
 }
 
 checkRessourceExist() {
@@ -402,6 +103,150 @@ checkNamingConvention(){
     fi
     return 0
 }
+
+err() {
+    local parent_lineno="$1"
+    local message="$2"
+    local code="${3:-1}"
+
+    if [[ -n "$message" ]] ; then
+        error "Line ${parent_lineno}: ${message}: exiting with status ${code}"
+    else
+        error "Line ${parent_lineno}: exiting with status ${code}"
+    fi
+
+    deleteLXDProject "$PROJECT_NAME"
+    lxc storage delete "$APP_STORAGE"
+    lxc storage delete "$DB_STORAGE"
+    lxc network delete "$NETWORK_NAME"
+    exit "${code}"
+}
+
+interrupt() {
+    warn "Script interrupted by user. Delete project and exit ..."
+    deleteLXDProject "$PROJECT_NAME"
+    lxc storage delete "$APP_STORAGE"
+    lxc storage delete "$DB_STORAGE"
+    lxc network delete "$NETWORK_NAME"
+    exit 130
+}
+
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  -i, --interactive               Activates an interactive installation process."
+    echo "  -p, --production                Set the MISP application to run in production mode."
+    echo "  --project <project_name>        Specify the name of the LXD project."
+    echo "  --misp-image <image_file>       Specify the MISP instance image file."
+    echo "  --misp-name <container_name>    Specify the MISP container name."
+    echo "  --mysql-image <image_file>      Specify the MariaDB instance image file."
+    echo "  --mysql-name <container_name>   Specify the MariaDB container name."
+    echo "  --mysql-db <database_name>      Specify the MISP database name."
+    echo "  --mysql-user <user_name>        Specify the MariaDB user name."
+    echo "  --mysql-pwd <password>          Specify the MariaDB user password."
+    echo "  --mysql-root-pwd <password>     Specify the MariaDB root password."
+    echo "  --redis-image <image_file>      Specify the Redis instance image file."
+    echo "  --redis-name <container_name>   Specify the Redis container name."
+    echo "  --no-modules                    Disable the setup of MISP Modules."
+    echo "  --modules-image <image_file>    Specify the MISP Modules image file."
+    echo "  --modules-name <container_name> Specify the MISP Modules container name."
+    echo "  --app-partition <partition>     Specify the MISP container partition."
+    echo "  --db-partition <partition>      Specify the database container partition."
+    echo
+    echo "Examples:"
+    echo "  $0 --interactive"
+    echo "  $0 --production --project my_project --mysql-user admin --mysql-pwd securepassword"
+    echo
+    echo "Note:"
+    echo "  - This script sets up and configures an LXD project environment for MISP."
+    echo "  - Use only alphanumeric characters and hyphens for container names and partitions."
+}
+
+checkForDefault(){
+    declare -A defaults=(
+    ["MYSQL_PASSWORD"]=$default_mysql_pwd
+    ["MYSQL_ROOT_PASSWORD"]=$default_mysql_root_pwd
+    )
+
+    for key in "${!defaults[@]}"; do
+        if [ "${!key}" = "${defaults[$key]}" ]; then
+            error "The value of '$key' is using the default value. Please modify all passwords before running the script in production."
+            exit 1
+        fi
+    done
+}
+
+validateArgs(){
+    # Check Names
+    local names=("$PROJECT_NAME" "$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+    for i in "${names[@]}"; do
+        if ! checkNamingConvention "$i"; then
+            exit 1
+        fi
+    done
+
+    if $MODULES && ! checkNamingConvention "$MODULES_CONTAINER"; then
+        exit 1
+    fi
+
+    # Check for Project
+    if checkRessourceExist "project" "$PROJECT_NAME"; then
+        error "Project '$PROJECT_NAME' already exists."
+        exit 1
+    fi
+
+    # Check Container Names
+    local containers=("$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+
+    declare -A name_counts
+    for name in "${containers[@]}"; do
+    ((name_counts["$name"]++))
+    done
+
+    if $MODULES;then
+        ((name_counts["$MODULES_CONTAINER"]++))
+    fi
+
+    for name in "${!name_counts[@]}"; do
+    if ((name_counts["$name"] >= 2)); then
+        error "At least two container have the same name: $name"
+        exit 1
+    fi
+    done
+
+    # Check for files
+    local files=("$MISP_IMAGE" "$MYSQL_IMAGE" "$REDIS_IMAGE")
+    for i in "${files[@]}"; do
+        if [ ! -f "$i" ]; then
+            error "The specified file $i does not exists"
+            exit 1
+        fi
+    done
+
+    if $MODULES && [ ! -f "$MODULES_IMAGE" ];then
+        error "The specified file $MODULES_IMAGE does not exists"
+        exit 1       
+    fi 
+
+    # Check for production mode
+    if $PROD; then
+        checkForDefault
+    fi
+}
+
+cleanup(){
+    # Remove imported images
+    images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$REDIS_IMAGE_NAME")
+    for image in "${images[@]}"; do
+        lxc image delete "$image"
+    done
+    if $MODULES; then
+        lxc image delete "$MODULES_IMAGE_NAME"
+    fi
+}
+
+# ========================== Installation Configuration ==========================
 
 interactiveConfig(){
     # Installer output
@@ -622,6 +467,116 @@ interactiveConfig(){
 
 }
 
+nonInteractiveConfig(){
+    VALID_ARGS=$(getopt -o ph --long help,production,project:,misp-image:,misp-name:,mysql-image:,mysql-name:,mysql-user:,mysql-pwd:,mysql-db:,mysql-root-pwd:,redis-image:,redis-name:,no-modules,modules-image:,modules-name:,app_partition:,db_partition:  -- "$@")
+    if [[ $? -ne 0 ]]; then
+        exit 1;
+    fi
+
+    eval set -- "$VALID_ARGS"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h | --help)
+                usage
+                exit 0
+                ;;
+            -p | --production)
+                prod="y"
+                shift
+                ;;
+            --project)
+                misp_project=$2
+                shift 2
+                ;;
+            --misp-image)
+                misp_img=$2
+                shift 2
+                ;;
+            --misp-name)
+                misp_name=$2
+                shift 2
+                ;;
+            --mysql-image)
+                mysql_img=$2
+                shift 2
+                ;;
+            --mysql-name)
+                mysql_name=$2
+                shift 2
+                ;;
+            --mysql-user)
+                mysql_user=$2
+                shift 2
+                ;;
+            --mysql-pwd)
+                mysql_pwd=$2
+                shift 2
+                ;;
+            --mysql-db)
+                mysql_db=$2
+                shift 2
+                ;;
+            --mysql-root-pwd)
+                mysql_root_pwd=$2
+                shift 2
+                ;;
+            --redis-image)
+                redis_img=$2
+                shift 2
+                ;;
+            --redis-name)
+                redis_name=$2
+                shift 2
+                ;;
+            --no-modules)
+                modules="n"
+                shift
+                ;;
+            --modules-image)
+                modules_img=$2
+                shift 2
+                ;;
+            --modules-name)
+                modules_name=$2
+                shift 2
+                ;;
+            --app-partition)
+                app_partition=$2
+                shift 2
+                ;;
+            --db-partition)
+                db_partition=$2
+                shift 2
+                ;;  
+            *)  
+                break 
+                ;;
+        esac
+    done
+
+    # Set global values
+    PROJECT_NAME=${misp_project:-$default_misp_project}
+    MISP_IMAGE=${misp_img:-$default_misp_img}
+    MISP_CONTAINER=${misp_name:-$default_misp_name}
+    MYSQL_IMAGE=${mysql_img:-$default_mysql_img}
+    MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
+    MYSQL_USER=${mysql_user:-$default_mysql_user}
+    MYSQL_PASSWORD=${mysql_pwd:-$default_mysql_pwd}
+    MYSQL_DATABASE=${mysql_db:-$default_mysql_db}
+    MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
+    REDIS_IMAGE=${redis_img:-$default_redis_img}
+    REDIS_CONTAINER=${redis_name:-$default_redis_name}
+    modules=${modules:-$default_modules}
+    MODULES=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+    MODULES_IMAGE=${modules_img:-$default_modules_img}
+    MODULES_CONTAINER=${modules_name:-$default_modules_name}
+    APP_PARTITION=${app_partition:-$default_app_partition}
+    DB_PARTITION=${db_partition:-$default_db_partition}
+    prod=${prod:-$default_prod}
+    PROD=$(echo "$prod" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+}
+
+# ========================== LXD Setup ==========================
 
 setupLXD(){
     # Create Project 
@@ -713,18 +668,34 @@ launchContainers(){
     fi
 }
 
+deleteLXDProject(){
+    local project="$1"
 
-configureMISPForDB(){
-    ## Edit database conf
-    ${LXC_MISP} -- sed -i "s/'database' => 'misp'/'database' => '$MYSQL_DATABASE'/" $PATH_TO_MISP/app/Config/database.php
-    ${LXC_MISP} -- sed -i "s/localhost/$MYSQL_CONTAINER.lxd/" $PATH_TO_MISP/app/Config/database.php
-    ${LXC_MISP} -- sed -i "s/'login' => '.*'/'login' => '$MYSQL_USER'/" "$PATH_TO_MISP/app/Config/database.php"
-    ${LXC_MISP} -- sed -i "s/8889/3306/" $PATH_TO_MISP/app/Config/database.php
-    ${LXC_MISP} -- sed -i "s/'password' => '.*'/'password' => '$MYSQL_PASSWORD'/" "$PATH_TO_MISP/app/Config/database.php"
+    echo "Starting cleanup ..."
+    echo "Deleting container in project"
+    for container in $(lxc query "/1.0/containers?recursion=1&project=${project}" | jq .[].name -r); do
+        lxc delete --project "${project}" -f "${container}"
+    done
 
-    # Write credentials to MISP
-    ${LXC_MISP} -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
+    echo "Deleting images in project"
+    for image in $(lxc query "/1.0/images?recursion=1&project=${project}" | jq .[].fingerprint -r); do
+        lxc image delete --project "${project}" "${image}"
+    done
+
+    echo "Deleting profiles in project"
+    for profile in $(lxc query "/1.0/profiles?recursion=1&project=${project}" | jq .[].name -r); do
+    if [ "${profile}" = "default" ]; then
+        printf 'config: {}\ndevices: {}' | lxc profile edit --project "${project}" default
+        continue
+    fi
+    lxc profile delete --project "${project}" "${profile}"
+    done
+
+    echo "Deleting project"
+    lxc project delete "${project}"
 }
+
+# ========================== MySQL Configuration ==========================
 
 editMySQLConf(){
     local key=$1
@@ -772,6 +743,26 @@ configureMySQL(){
 EOF
 }
 
+initializeDB(){
+    ## Check connection + import schema to MySQL
+    table_count=$(${LXC_MISP} -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}Connected to database successfully!${NC}"
+        if [ $table_count -lt 73 ]; then
+            echo "Database misp is empty, importing tables from misp container ..."
+            ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $PATH_TO_MISP/INSTALL/MYSQL.sql"
+        else
+            echo "Database misp available"
+        fi
+    else
+        error $table_count
+    fi
+    # Update DB
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin runUpdates
+}
+
+# ========================== Redis Configuration ==========================
+
 configureRedisContainer(){
     ## Cofigure remote access
     lxc exec $REDIS_CONTAINER -- sed -i "s/^bind .*/bind 0.0.0.0/" "/etc/redis/redis.conf"
@@ -779,9 +770,35 @@ configureRedisContainer(){
     lxc exec $REDIS_CONTAINER -- systemctl restart redis-server
 }
 
-configureMISPforRedis(){
-    # CakeResque redis
-    ${LXC_MISP} -- sed -i "s/'host' => '127.0.0.1'/'host' => '$REDIS_CONTAINER.lxd'/; s/'port' => 6379/'port' => $REDIS_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
+# ========================== MISP Configuration ==========================
+
+updateGOWNT () {
+    # Update the galaxies…
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateGalaxies
+    # Updating the taxonomies…
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateTaxonomies
+    # Updating the warning lists…
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateWarningLists
+    # Updating the notice lists…
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateNoticeLists
+    # Updating the object templates…
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin updateObjectTemplates "1337"
+}
+
+setupGnuPG() {
+    GPG_EMAIL_ADDRESS="admin@admin.test"
+    GPG_PASSPHRASE="$(openssl rand -hex 32)"
+
+     ${LXC_MISP} -- rm /tmp/gen-key-script
+    
+    ${LXC_MISP} -- sudo -u ${WWW_USER} gpg --homedir $PATH_TO_MISP/.gnupg --quick-generate-key --batch --passphrase "$GPG_PASSPHRASE" "$GPG_EMAIL_ADDRESS" ed25519 sign never
+
+    # Ensure the webroot directory exists
+    ${LXC_MISP} -- sudo -u ${WWW_USER} mkdir -p "$PATH_TO_MISP/app/webroot"
+
+    # Correctly write the exported key to gpg.asc
+    ${LXC_MISP} -- sudo -u ${WWW_USER} bash -c "gpg --homedir $PATH_TO_MISP/.gnupg --export --armor '$GPG_EMAIL_ADDRESS' > '$PATH_TO_MISP/app/webroot/gpg.asc'"
+
 }
 
 createRedisSocket(){
@@ -803,23 +820,238 @@ createRedisSocket(){
     ${LXC_MISP} -- sudo service apache2 restart
 }
 
-initializeDB(){
-    ## Check connection + import schema to MySQL
-    table_count=$(${LXC_MISP} -- mysql -u $MYSQL_USER --password="$MYSQL_PASSWORD" -h $MYSQL_CONTAINER.lxd -P 3306 $MYSQL_DATABASE -e "SHOW TABLES;" | wc -l)
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}Connected to database successfully!${NC}"
-        if [ $table_count -lt 73 ]; then
-            echo "Database misp is empty, importing tables from misp container ..."
-            ${LXC_MISP} -- bash -c "mysql -u $MYSQL_USER --password=$MYSQL_PASSWORD $MYSQL_DATABASE -h $MYSQL_CONTAINER.lxd -P 3306 2>&1 < $PATH_TO_MISP/INSTALL/MYSQL.sql"
-        else
-            echo "Database misp available"
-        fi
-    else
-        error $table_count
-    fi
-    # Update DB
+setMISPConfig () {
+    # IF you have logged in prior to running this, it will fail but the fail is NON-blocking
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} userInit -q
+
+    # This makes sure all Database upgrades are done, without logging in.
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin runUpdates
+
+    # The default install is Python >=3.6 in a virtualenv, setting accordingly
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.python_bin" "${PATH_TO_MISP}/venv/bin/python"
+
+    # Tune global time outs
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Session.autoRegenerate" 0
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Session.timeout" 600
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Session.cookieTimeout" 3600
+    
+    # Set the default temp dir
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.tmpdir" "${PATH_TO_MISP}/app/tmp"
+
+    # Change base url, either with this CLI command or in the UI
+    [[ ! -z ${MISP_BASEURL} ]] && ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Baseurl $MISP_BASEURL
+    [[ ! -z ${MISP_BASEURL} ]] && ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.external_baseurl" ${MISP_BASEURL}
+
+    # Enable GnuPG
+    echo $GPG_EMAIL_ADDRESS
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.email" "${GPG_EMAIL_ADDRESS}" # Error
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.homedir" "${PATH_TO_MISP}/.gnupg"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.password" "${GPG_PASSPHRASE}"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.obscure_subject" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.key_fetching_disabled" false
+    # FIXME: what if we have not gpg binary but a gpg2 one?
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "GnuPG.binary" "$(which gpg)"
+
+    # LinOTP
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.enabled" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.baseUrl" "https://<your-linotp-baseUrl>"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.realm" "lino"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.verifyssl" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "LinOTPAuth.mixedauth" false
+
+    # Enable installer org and tune some configurables
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.host_org_id" 1
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.email" "info@admin.test"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_emailing" true --force
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.contact" "info@admin.test"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disablerestalert" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.showCorrelationsOnIndex" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.default_event_tag_collection" 0
+
+    # Provisional Cortex tunes
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_services_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_services_url" "http://127.0.0.1"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_services_port" 9000
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_timeout" 120
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_authkey" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_verify_peer" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_verify_host" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Cortex_ssl_allow_self_signed" true
+
+    # Provisional Action tunes
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_url" "http://127.0.0.1"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_services_port" 6666
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Action_timeout" 10
+
+    # Various plugin sightings settings
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_policy" 0
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_anonymise" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_anonymise_as" 1
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_range" 365
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Sightings_sighting_db_enable" false
+
+    # TODO: Fix the below list
+    # Set API_Required modules to false
+    PLUGS=(Plugin.ElasticSearch_logging_enable
+            Plugin.S3_enable)
+    for PLUG in "${PLUGS[@]}"; do
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting ${PLUG} false 2> /dev/null
+    done
+
+    # Plugin CustomAuth tuneable
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.CustomAuth_disable_logout" false
+
+    # RPZ Plugin settings
+    #${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_policy" "DROP"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_walled_garden" "127.0.0.1"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_serial" "\$date00"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_refresh" "2h"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_retry" "30m"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_expiry" "30d"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_minimum_ttl" "1h"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_ttl" "1w"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_ns" "localhost."
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_ns_alt" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.RPZ_email" "root.localhost"
+
+    # Kafka settings
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_brokers" "kafka:9092"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_rdkafka_config" "/etc/rdkafka.ini"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_include_attachments" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_notifications_topic" "misp_event"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_publish_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_event_publish_notifications_topic" "misp_event_publish"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_notifications_topic" "misp_object"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_reference_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_object_reference_notifications_topic" "misp_object_reference"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_attribute_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_attribute_notifications_topic" "misp_attribute"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_shadow_attribute_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_shadow_attribute_notifications_topic" "misp_shadow_attribute"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_tag_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_tag_notifications_topic" "misp_tag"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_sighting_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_sighting_notifications_topic" "misp_sighting"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_user_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_user_notifications_topic" "misp_user"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_organisation_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_organisation_notifications_topic" "misp_organisation"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_audit_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Kafka_audit_notifications_topic" "misp_audit"
+
+    # ZeroMQ settings
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_host" "127.0.0.1"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_port" 50000
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$REDIS_CONTAINER.lxd"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $REDIS_CONTAINER_PORT
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_database" 1
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_namespace" "mispq"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_event_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_object_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_object_reference_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_attribute_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_sighting_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_user_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_organisation_notifications_enable" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_include_attachments" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_tag_notifications_enable" false
+
+    # Force defaults to make MISP Server Settings less RED
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.language" "eng"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.proposals_block_attributes" false
+
+  # Redis block
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_database" 13
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_password" ""
+
+    # Force defaults to make MISP Server Settings less YELLOW
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.ssdeep_correlation_threshold" 40
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.extended_alert_subject" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.default_event_threat_level" 4
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.newUserText" "Dear new MISP user,\\n\\nWe would hereby like to welcome you to the \$org MISP community.\\n\\n Use the credentials below to log into MISP at \$misp, where you will be prompted to manually change your password to something of your own choice.\\n\\nUsername: \$username\\nPassword: \$password\\n\\nIf you have any questions, don't hesitate to contact us at: \$contact.\\n\\nBest regards,\\nYour \$org MISP support team"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.passwordResetText" "Dear MISP user,\\n\\nA password reset has been triggered for your account. Use the below provided temporary password to log into MISP at \$misp, where you will be prompted to manually change your password to something of your own choice.\\n\\nUsername: \$username\\nYour temporary password: \$password\\n\\nIf you have any questions, don't hesitate to contact us at: \$contact.\\n\\nBest regards,\\nYour \$org MISP support team"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.enableEventBlocklisting" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.enableOrgBlocklisting" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_client_ip" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_auth" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_user_ips" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.log_user_ips_authkeys" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disableUserSelfManagement" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_user_login_change" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_user_password_change" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.disable_user_add" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_event_alert" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_event_alert_tag" "no-alerts=\"true\""
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_old_event_alert" false
+    #${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_old_event_alert_age" ""
+    #${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.block_old_event_alert_by_date" ""
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_republish_ban" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_republish_ban_threshold" 5
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_republish_ban_refresh_on_retry" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.incoming_tags_disabled_by_default" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.maintenance_message" "Great things are happening! MISP is undergoing maintenance, but will return shortly. You can contact the administration at \$email."
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.footermidleft" "This is an initial install"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.footermidright" "Please configure and harden accordingly"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.welcome_text_top" "Initial Install, please configure"
+    # TODO: Make sure $FLAVOUR is correct
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.welcome_text_bottom" "Welcome to MISP on ${FLAVOUR}, change this message in MISP Settings"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.attachments_dir" "${PATH_TO_MISP}/app/files"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.download_attachments_on_load" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_alert_metadata_only" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.title_text" "MISP"
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.terms_download" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.showorgalternate" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.event_view_filter_fields" "id, uuid, value, comment, type, category, Tag.name"
+
+    # Force defaults to make MISP Server Settings less GREEN
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "debug" 0
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.auth_enforced" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.log_each_individual_auth_fail" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.rest_client_baseurl" ""
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.advanced_authkeys" false
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.password_policy_length" 12
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.password_policy_complexity" '/^((?=.*\d)|(?=.*\W+))(?![\n])(?=.*[A-Z])(?=.*[a-z]).*$|.{16,}/'
+
+    # Appease the security audit, #hardening
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.disable_browser_cache" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.check_sec_fetch_site_header" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.csp_enforce" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.advanced_authkeys" true
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.do_not_log_authkeys" true
+
+    # Appease the security audit, #loggin
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Security.username_in_response_header" true
+
+    # Configure background workers
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.enabled" 1 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_host" "${REDIS_CONTAINER}.lxd" 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_port" $REDIS_CONTAINER_PORT 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_database" 13 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_password" "" 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_namespace" "background_jobs" 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.supervisor_host" "localhost" 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.supervisor_port" 9001 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.supervisor_user" ${SUPERVISOR_USER} 
+    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.supervisor_password" ${SUPERVISOR_PASSWORD} 
+    #${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_serializer" "JSON" 
 }
+
+setupSupervisor(){
+        local config_file="/etc/supervisor/supervisord.conf"
+        ${LXC_MISP} -- sed -i "s/^password=.*/password=$SUPERVISOR_PASSWORD/" "$config_file"
+
+        # Restart Supervisor to apply changes
+        ${LXC_MISP} -- sudo systemctl restart supervisor
+}
+
+# ========================== MISP Modules Configuration ==========================
 
 configureMISPModules(){
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.Enrichment_services_enable" true
@@ -937,292 +1169,39 @@ configureMISPModules(){
   done
 }
 
-deleteLXDProject(){
-    local project="$1"
 
-    echo "Starting cleanup ..."
-    echo "Deleting container in project"
-    for container in $(lxc query "/1.0/containers?recursion=1&project=${project}" | jq .[].name -r); do
-        lxc delete --project "${project}" -f "${container}"
-    done
+# ========================== MAIN ==========================
 
-    echo "Deleting images in project"
-    for image in $(lxc query "/1.0/images?recursion=1&project=${project}" | jq .[].fingerprint -r); do
-        lxc image delete --project "${project}" "${image}"
-    done
-
-    echo "Deleting profiles in project"
-    for profile in $(lxc query "/1.0/profiles?recursion=1&project=${project}" | jq .[].name -r); do
-    if [ "${profile}" = "default" ]; then
-        printf 'config: {}\ndevices: {}' | lxc profile edit --project "${project}" default
-        continue
-    fi
-    lxc profile delete --project "${project}" "${profile}"
-    done
-
-    echo "Deleting project"
-    lxc project delete "${project}"
-}
-
-err() {
-    local parent_lineno="$1"
-    local message="$2"
-    local code="${3:-1}"
-
-    if [[ -n "$message" ]] ; then
-        error "Line ${parent_lineno}: ${message}: exiting with status ${code}"
-    else
-        error "Line ${parent_lineno}: exiting with status ${code}"
-    fi
-
-    deleteLXDProject "$PROJECT_NAME"
-    lxc storage delete "$APP_STORAGE"
-    lxc storage delete "$DB_STORAGE"
-    lxc network delete "$NETWORK_NAME"
-    exit "${code}"
-}
-
-interrupt() {
-    warn "Script interrupted by user. Delete project and exit ..."
-    deleteLXDProject "$PROJECT_NAME"
-    lxc storage delete "$APP_STORAGE"
-    lxc storage delete "$DB_STORAGE"
-    lxc network delete "$NETWORK_NAME"
-    exit 130
-}
-
-
-usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo
-    echo "Options:"
-    echo "  -i, --interactive               Activates an interactive installation process."
-    echo "  -p, --production                Set the MISP application to run in production mode."
-    echo "  --project <project_name>        Specify the name of the LXD project."
-    echo "  --misp-image <image_file>       Specify the MISP instance image file."
-    echo "  --misp-name <container_name>    Specify the MISP container name."
-    echo "  --mysql-image <image_file>      Specify the MariaDB instance image file."
-    echo "  --mysql-name <container_name>   Specify the MariaDB container name."
-    echo "  --mysql-db <database_name>      Specify the MISP database name."
-    echo "  --mysql-user <user_name>        Specify the MariaDB user name."
-    echo "  --mysql-pwd <password>          Specify the MariaDB user password."
-    echo "  --mysql-root-pwd <password>     Specify the MariaDB root password."
-    echo "  --redis-image <image_file>      Specify the Redis instance image file."
-    echo "  --redis-name <container_name>   Specify the Redis container name."
-    echo "  --no-modules                    Disable the setup of MISP Modules."
-    echo "  --modules-image <image_file>    Specify the MISP Modules image file."
-    echo "  --modules-name <container_name> Specify the MISP Modules container name."
-    echo "  --app-partition <partition>     Specify the MISP container partition."
-    echo "  --db-partition <partition>      Specify the database container partition."
-    echo
-    echo "Examples:"
-    echo "  $0 --interactive"
-    echo "  $0 --production --project my_project --mysql-user admin --mysql-pwd securepassword"
-    echo
-    echo "Note:"
-    echo "  - This script sets up and configures an LXD project environment for MISP."
-    echo "  - Use only alphanumeric characters and hyphens for container names and partitions."
-}
-
-checkForDefault(){
-    declare -A defaults=(
-    ["MYSQL_PASSWORD"]=$default_mysql_pwd
-    ["MYSQL_ROOT_PASSWORD"]=$default_mysql_root_pwd
-    )
-
-    for key in "${!defaults[@]}"; do
-        if [ "${!key}" = "${defaults[$key]}" ]; then
-            error "The value of '$key' is using the default value. Please modify all passwords before running the script in production."
-            exit 1
-        fi
-    done
-}
-
-nonInteractiveConfig(){
-    VALID_ARGS=$(getopt -o ph --long help,production,project:,misp-image:,misp-name:,mysql-image:,mysql-name:,mysql-user:,mysql-pwd:,mysql-db:,mysql-root-pwd:,redis-image:,redis-name:,no-modules,modules-image:,modules-name:,app_partition:,db_partition:  -- "$@")
-    if [[ $? -ne 0 ]]; then
-        exit 1;
-    fi
-
-    eval set -- "$VALID_ARGS"
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -h | --help)
-                usage
-                exit 0
-                ;;
-            -p | --production)
-                prod="y"
-                shift
-                ;;
-            --project)
-                misp_project=$2
-                shift 2
-                ;;
-            --misp-image)
-                misp_img=$2
-                shift 2
-                ;;
-            --misp-name)
-                misp_name=$2
-                shift 2
-                ;;
-            --mysql-image)
-                mysql_img=$2
-                shift 2
-                ;;
-            --mysql-name)
-                mysql_name=$2
-                shift 2
-                ;;
-            --mysql-user)
-                mysql_user=$2
-                shift 2
-                ;;
-            --mysql-pwd)
-                mysql_pwd=$2
-                shift 2
-                ;;
-            --mysql-db)
-                mysql_db=$2
-                shift 2
-                ;;
-            --mysql-root-pwd)
-                mysql_root_pwd=$2
-                shift 2
-                ;;
-            --redis-image)
-                redis_img=$2
-                shift 2
-                ;;
-            --redis-name)
-                redis_name=$2
-                shift 2
-                ;;
-            --no-modules)
-                modules="n"
-                shift
-                ;;
-            --modules-image)
-                modules_img=$2
-                shift 2
-                ;;
-            --modules-name)
-                modules_name=$2
-                shift 2
-                ;;
-            --app-partition)
-                app_partition=$2
-                shift 2
-                ;;
-            --db-partition)
-                db_partition=$2
-                shift 2
-                ;;  
-            *)  
-                break 
-                ;;
-        esac
-    done
-
-    # Set global values
-    PROJECT_NAME=${misp_project:-$default_misp_project}
-    MISP_IMAGE=${misp_img:-$default_misp_img}
-    MISP_CONTAINER=${misp_name:-$default_misp_name}
-    MYSQL_IMAGE=${mysql_img:-$default_mysql_img}
-    MYSQL_CONTAINER=${mysql_name:-$default_mysql_name}
-    MYSQL_USER=${mysql_user:-$default_mysql_user}
-    MYSQL_PASSWORD=${mysql_pwd:-$default_mysql_pwd}
-    MYSQL_DATABASE=${mysql_db:-$default_mysql_db}
-    MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
-    REDIS_IMAGE=${redis_img:-$default_redis_img}
-    REDIS_CONTAINER=${redis_name:-$default_redis_name}
-    modules=${modules:-$default_modules}
-    MODULES=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
-    MODULES_IMAGE=${modules_img:-$default_modules_img}
-    MODULES_CONTAINER=${modules_name:-$default_modules_name}
-    APP_PARTITION=${app_partition:-$default_app_partition}
-    DB_PARTITION=${db_partition:-$default_db_partition}
-    prod=${prod:-$default_prod}
-    PROD=$(echo "$prod" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
-}
-
-validateArgs(){
-    # Check Names
-    local names=("$PROJECT_NAME" "$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
-    for i in "${names[@]}"; do
-        if ! checkNamingConvention "$i"; then
-            exit 1
-        fi
-    done
-
-    if $MODULES && ! checkNamingConvention "$MODULES_CONTAINER"; then
-        exit 1
-    fi
-
-    # Check for Project
-    if checkRessourceExist "project" "$PROJECT_NAME"; then
-        error "Project '$PROJECT_NAME' already exists."
-        exit 1
-    fi
-
-    # Check Container Names
-    local containers=("$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
-
-    declare -A name_counts
-    for name in "${containers[@]}"; do
-    ((name_counts["$name"]++))
-    done
-
-    if $MODULES;then
-        ((name_counts["$MODULES_CONTAINER"]++))
-    fi
-
-    for name in "${!name_counts[@]}"; do
-    if ((name_counts["$name"] >= 2)); then
-        error "At least two container have the same name: $name"
-        exit 1
-    fi
-    done
-
-    # Check for files
-    local files=("$MISP_IMAGE" "$MYSQL_IMAGE" "$REDIS_IMAGE")
-    for i in "${files[@]}"; do
-        if [ ! -f "$i" ]; then
-            error "The specified file $i does not exists"
-            exit 1
-        fi
-    done
-
-    if $MODULES && [ ! -f "$MODULES_IMAGE" ];then
-        error "The specified file $MODULES_IMAGE does not exists"
-        exit 1       
-    fi 
-
-    # Check for production mode
-    if $PROD; then
-        checkForDefault
-    fi
-}
-
-cleanup(){
-    # Remove imported images
-    images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$REDIS_IMAGE_NAME")
-    for image in "${images[@]}"; do
-        lxc image delete "$image"
-    done
-    if $MODULES; then
-        lxc image delete "$MODULES_IMAGE_NAME"
-    fi
-}
-
-# Main
 if [ -z "$1" ]; then
     usage
     exit 0
 fi
 checkSoftwareDependencies
-setDefaultArgs
+
+default_confirm="no"
+default_prod="no"
+default_misp_project=$(generateName "misp-project")
+
+default_misp_img=""
+default_misp_name=$(generateName "misp")
+
+default_mysql_img=""
+default_mysql_name=$(generateName "mysql")
+default_mysql_user="misp"
+default_mysql_pwd="misp"
+default_mysql_db="misp"
+default_mysql_root_pwd="misp"
+
+default_redis_img=""
+default_redis_name=$(generateName "redis")
+
+default_modules="yes"
+default_modules_img=""
+default_modules_name=$(generateName "modules")
+
+default_app_partition=""
+default_db_partition=""
+
 # Check for interactive install
 INTERACTIVE=false
 for arg in "$@"; do
@@ -1239,10 +1218,33 @@ else
 fi
 
 validateArgs
-setVars
+
+WWW_USER="www-data"
+SUDO_WWW="sudo -H -u ${WWW_USER} "
+PATH_TO_MISP="/var/www/MISP"
+CAKE="${PATH_TO_MISP}/app/Console/cake"
+MISP_BASEURL="${MISP_BASEURL:-""}"
+LXC_MISP="lxc exec ${MISP_CONTAINER}"
+REDIS_CONTAINER_PORT="6380"
+
+INNODB_BUFFER_POOL_SIZE="2147483648"
+INNODB_CHANGE_BUFFERING="none"
+INNODB_IO_CAPACITY="1000"
+INNODB_IO_CAPACITY_MAX="2000"
+INNODB_LOG_FILE_SIZE="629145600"
+INNODB_LOG_FILES_IN_GROUP="2"
+INNODB_READ_IO_THREADS="16"
+INNODB_STATS_PERISTENT="ON"
+INNODB_WRITE_IO_THREADS="4"
+
+SUPERVISOR_USER='supervisor'
+SUPERVISOR_PASSWORD="$(random_string)"
+MISP_DOMAIN='misp.local'
+
 trap 'interrupt' INT
 trap 'err ${LINENO}' ERR
 
+# ----------------- LXD setup -----------------
 info "1" "Setup LXD Project"
 setupLXD
 
@@ -1254,33 +1256,35 @@ launchContainers
 waitForContainer $MISP_CONTAINER
 PHP_VERSION=$(getPHPVersion)
 
+# ----------------- MySQL config -----------------
 info "4" "Configure and Update MySQL DB"
 waitForContainer $MYSQL_CONTAINER
 configureMySQL
 
+# ----------------- Redis config -----------------
 info "5" "Configure Redis"
 waitForContainer $REDIS_CONTAINER
 configureRedisContainer
+
+# ----------------- MISP config -----------------
+info "6" "Configure MISP"
 createRedisSocket
 
-info "6" "Edit MISP Config"
-configureMISPForDB
-configureMISPforRedis
+# Set MISP DB config
+${LXC_MISP} -- sed -i "s/'database' => 'misp'/'database' => '$MYSQL_DATABASE'/" $PATH_TO_MISP/app/Config/database.php
+${LXC_MISP} -- sed -i "s/localhost/$MYSQL_CONTAINER.lxd/" $PATH_TO_MISP/app/Config/database.php
+${LXC_MISP} -- sed -i "s/'login' => '.*'/'login' => '$MYSQL_USER'/" "$PATH_TO_MISP/app/Config/database.php"
+${LXC_MISP} -- sed -i "s/8889/3306/" $PATH_TO_MISP/app/Config/database.php
+${LXC_MISP} -- sed -i "s/'password' => '.*'/'password' => '$MYSQL_PASSWORD'/" "$PATH_TO_MISP/app/Config/database.php"
+
+# Write credentials to MISP
+${LXC_MISP} -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
+
+# Set MISP Redis config
+${LXC_MISP} -- sed -i "s/'host' => 'localhost'/'host' => '$REDIS_CONTAINER.lxd'/; s/'port' => 6379/'port' => $REDIS_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
+
 initializeDB
 
-# Set misp.live false
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting MISP.live false --force
-
-# Start workers
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque stop --all
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue default
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue prio
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue cache
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue email
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque start --interval 5 --queue update
-${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} CakeResque.CakeResque startscheduler --interval 5
-
-info "7" "Create Keys"
 setupGnuPG
 
 # Create new auth key
@@ -1288,25 +1292,66 @@ ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} UserInit
 AUTH_KEY=$(${LXC_MISP} -- sudo -u www-data -H sh -c "$PATH_TO_MISP/app/Console/cake user change_authkey admin@admin.test | grep -oP ': \K.*'")
 lxc exec "$MISP_CONTAINER" -- sh -c "echo 'Authkey: $AUTH_KEY' > /home/misp/MISP-authkey.txt"
 
-info "8" "Set MISP Settings"
-coreCAKE
+setMISPConfig
+
+setupSupervisor
+
+# ----------------- MISP Modules config -----------------
 if $MODULES; then
     configureMISPModules
 fi
 
-info "9" "Update Galaxies, ObjectTemplates, Warninglists, Noticelists and Templates"
 updateGOWNT
 
 if $PROD; then
-    info "10" "Set MISP.live for production"
+    info "7" "Set MISP.live for production"
     ${LXC_MISP} -- sudo -u www-data -H sh -c "$PATH_TO_MISP/app/Console/cake Admin setSetting MISP.live true"
     warn "MISP runs in production mode!"
 fi
 
 cleanup
 
+# Save settings to settings file
+INSTALLATION_LOG_FILE="/var/log/misp_settings.txt"
+current_date=$(date -u +"[%a %b %d %T UTC %Y]")
+
+${LXC_MISP} -- bash -c "cat <<EOL | sudo tee $INSTALLATION_LOG_FILE > /dev/null
+$current_date MISP-Airgap installation
+
+[MISP admin user]
+- Admin Username: admin@admin.test
+- Admin Password: admin
+- Admin API key: $AUTH_KEY
+
+[MYSQL ADMIN]
+- Username: root
+- Password: $MYSQL_ROOT_PASSWORD
+
+[MYSQL MISP]
+- Username: $MYSQL_USER
+- Password: $MYSQL_PASSWORD
+
+[MISP internal]
+- Path: $PATH_TO_MISP
+- Apache user: $WWW_USER
+- GPG Email: $GPG_EMAIL_ADDRESS
+- GPG Passphrase: $GPG_PASSPHRASE
+- SUPERVISOR_USER: $SUPERVISOR_USER
+- SUPERVISOR_PASSWORD: $SUPERVISOR_PASSWORD
+EOL
+"
+
+# Delete old install log
+${LXC_MISP} -- sudo rm /var/log/misp_install.log
+
 # Print info
 misp_ip=$(lxc list $MISP_CONTAINER --format=json | jq -r '.[0].state.network.eth0.addresses[] | select(.family=="inet").address')
+
+echo "███    ███ ██ ███████ ██████         █████  ██ ██████   ██████   █████  ██████  "
+echo "████  ████ ██ ██      ██   ██       ██   ██ ██ ██   ██ ██       ██   ██ ██   ██ "
+echo "██ ████ ██ ██ ███████ ██████  █████ ███████ ██ ██████  ██   ███ ███████ ██████  "
+echo "██  ██  ██ ██      ██ ██            ██   ██ ██ ██   ██ ██    ██ ██   ██ ██      "
+echo "██      ██ ██ ███████ ██            ██   ██ ██ ██   ██  ██████  ██   ██ ██      "
 echo "--------------------------------------------------------------------------------------------"
 echo -e "${BLUE}MISP ${NC}is up and running on $misp_ip"
 echo "--------------------------------------------------------------------------------------------"
@@ -1317,9 +1362,10 @@ ${LXC_MISP} -- cat /home/misp/mysql.txt
 echo -e "${RED}/home/misp/MISP-authkey.txt${NC}"
 echo "Contents:"
 ${LXC_MISP} -- cat /home/misp/MISP-authkey.txt
+echo -e "${RED}/var/log/misp_settings.log${NC}"
+echo "Contents:"
+${LXC_MISP} -- cat $INSTALLATION_LOG_FILE
 echo "--------------------------------------------------------------------------------------------"
-echo "User: admin@admin.test"
-echo "Password: admin"
-echo "--------------------------------------------------------------------------------------------"
-echo "GnuPG passphrase: $GPG_PASSPHRASE"
-echo "--------------------------------------------------------------------------------------------"
+echo "Hint: You can add the following line to your /etc/hosts file to access MISP through $MISP_DOMAIN:"
+echo "$misp_ip $MISP_DOMAIN"
+

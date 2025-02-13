@@ -24,7 +24,7 @@ setVars(){
     MYSQL_CONTAINER=$(generateName "mysql")
     REDIS_CONTAINER=$(generateName "redis")
     MODULES_CONTAINER=$(generateName "modules")
-    UBUNTU="ubuntu:22.04"
+    UBUNTU="ubuntu:24.04"
     BUILD_REDIS_VERSION=false
     BUILD_MYSQL_VERSION=false
     REDIS_SERVICE_FILE="$PATH_TO_BUILD/conf/redis-server.service"
@@ -68,17 +68,6 @@ getInstallerCommitID(){
     echo "$commit_id"
 }
 
-getInstallerHash(){
-    sha_file=$1
-    file_contents=$(curl -s "$REPO_URL/contents/build/$sha_file" | jq -e -r '.content // empty')
-    if [ -z "$file_contents" ]; then
-        error "Unable to retrieve hash from $sha_file."
-        exit 1
-    fi
-    decoded_contents=$(echo "$file_contents" | base64 -d | cut -f1 -d\ )
-    echo "$decoded_contents"
-}
-
 installMISP(){
     local container_name="$1"
 
@@ -101,8 +90,8 @@ installMISP(){
     fi
 
     lxc exec "$container_name" -- bash -c "echo 'misp ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/misp"
-    lxc exec "$container_name" -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/main/build/AIRGAP_INSTALL.sh
-    lxc exec "$container_name" -- sudo -u "misp" -H sh -c "bash /tmp/AIRGAP_INSTALL.sh -c -u"
+    lxc exec "$container_name" -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/misp2.5/build/AIRGAP_INSTALL.sh
+    lxc exec "$container_name" -- sudo -u "misp" -H sh -c "sudo bash /tmp/AIRGAP_INSTALL.sh -c -u"
     lxc exec "$container_name" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
@@ -163,14 +152,6 @@ addMISPInstallerInfo(){
     # Installer info
     local installer_commit_id
     installer_commit_id=$(getInstallerCommitID)
-    local sha1
-    sha1=$(getInstallerHash "AIRGAP_INSTALL.sh.sha1")
-    local sha256
-    sha256=$(getInstallerHash "AIRGAP_INSTALL.sh.sha256")
-    local sha384
-    sha384=$(getInstallerHash "AIRGAP_INSTALL.sh.sha384")
-    local sha512
-    sha512=$(getInstallerHash "AIRGAP_INSTALL.sh.sha512")
 
     # Modify the JSON template as needed using jq
     jq --arg version "$version" --arg commit_id "$misp_commit_id" --arg date "$date" --arg installer_commit_id "$installer_commit_id" --arg sha1 "$sha1" --arg sha256 "$sha256" --arg sha384 "$sha384" --arg sha512 "$sha512"\

@@ -117,7 +117,7 @@ Below is the table summarizing the script flags and variables:
 
 >**Note**: It is crucial to **modify all default credentials** when using this installation in a production environment. Specifically, if the PROD variable is set to true, the installer will not accept default values.
 
-After completing these steps, MISP should be up and running. Access the MISP web interface by navigating to the IP address displayed in the terminal after the installation process is finished. Alternatively, you can identify the IP addresses of all running containers within the project by executing the command `lxc list`. 
+After completing these steps, MISP should be up and running. You can add the IP address of the MISP container to your `/etc/hosts` file to be able to access it through the set domain (default: misp.local). The IP address is displayed when the installing process has finished. Alternatively, you can identify the IP addresses of all running containers within the project by executing the command `lxc list`. 
 
 ## Update
 1. **Download Images**
