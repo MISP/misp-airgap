@@ -175,7 +175,7 @@ install_packages ${packages[@]}
 error_check "MariaDB Client installation"
 
 print_status "Installing PHP and the list of required extensions..."
-declare -a packages=( redis-server php8.3 php8.3-cli php8.3-dev php8.3-xml php8.3-mysql php8.3-opcache php8.3-readline php8.3-mbstring php8.3-zip \
+declare -a packages=( valkey-server php8.3 php8.3-cli php8.3-dev php8.3-xml php8.3-mysql php8.3-opcache php8.3-readline php8.3-mbstring php8.3-zip \
   php8.3-intl php8.3-bcmath php8.3-gd php8.3-redis php8.3-gnupg php8.3-apcu libapache2-mod-php8.3 php8.3-curl );
 install_packages ${packages[@]}
 PHP_ETC_BASE=/etc/php/8.3
