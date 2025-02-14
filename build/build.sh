@@ -192,43 +192,43 @@ installMISPModules(){
     lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
     lxc exec "$container" -- apt update
     lxc exec "$container" -- apt upgrade -y
-    lxc exec "$container" -- apt install python3-pip -y
-    lxc exec "$container" -- pip install --upgrade pip
-    lxc exec "$container" -- sudo apt-get install python3-dev python3-pip libpq5 libjpeg-dev tesseract-ocr libpoppler-cpp-dev imagemagick virtualenv libopencv-dev zbar-tools libzbar0 libzbar-dev libfuzzy-dev build-essential -y
-    lxc exec "$container" -- mkdir -p /var/www/MISP
-    lxc exec "$container" -- sudo chown -R www-data:www-data /var/www/MISP/
-    lxc exec "$container" -- sudo -u www-data virtualenv -p python3 /var/www/MISP/venv
-    lxc exec "$container" --cwd=/usr/local/src/ -- sudo chown -R www-data: .
-    lxc exec "$container" --cwd=/usr/local/src/ -- sudo -u www-data git clone https://github.com/MISP/misp-modules.git
-    lxc exec "$container" --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install -I -r REQUIREMENTS
-    lxc exec "$container" --cwd=/usr/local/src/misp-modules -- sudo -u www-data /var/www/MISP/venv/bin/pip install .
+    lxc exec "$container" -- apt install python3-pip python3-venv -y
+    lxc exec "$container" -- apt install libpoppler-cpp-dev libzbar0 tesseract-ocr libgl1 yara -y
 
-    # Configure MISP Modules to listen on external connections
-    lxc exec "$container" -- sed -i 's/127\.0\.0\.1/0\.0\.0\.0/g' "/usr/local/src/misp-modules/etc/systemd/system/misp-modules.service"
+    lxc exec "$container" -- mkdir -p /var/www/MISP/
+    lxc exec "$container" -- chown -R www-data:www-data /var/www/MISP/
+    lxc exec "$container" -- sudo -u www-data -- python3 -m venv /var/www/MISP/modules
+    lxc exec "$container" -- bash -c "
+        source /var/www/MISP/modules/bin/activate &&
+        pip install --upgrade pip &&
+        pip install misp-modules &&
+        pip install \
+            git+https://github.com/cartertemm/ODTReader.git \
+            git+https://github.com/abenassi/Google-Search-API \
+            git+https://github.com/SteveClement/trustar-python.git \
+            git+https://github.com/sebdraven/pydnstrails.git \
+            git+https://github.com/sebdraven/pyonyphe.git
+    "
 
-    # Start misp-modules as a service
-    lxc exec "$container" --cwd=/usr/local/src/misp-modules -- sudo cp etc/systemd/system/misp-modules.service /etc/systemd/system/
-    lxc exec "$container" -- sudo systemctl daemon-reload
-    lxc exec "$container" -- sudo systemctl enable --now misp-modules
-    lxc exec "$container" -- sudo service misp-modules start
+    lxc exec "$container" -- bash -c "cat > /etc/systemd/system/misp-modules.service <<EOF
+[Unit]
+Description=MISP modules
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+ExecStart=/var/www/MISP/modules/bin/misp-modules -l 0.0.0.0 -s
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF"
+
+    lxc exec "$container" -- systemctl daemon-reload
+    lxc exec "$container" -- systemctl enable --now misp-modules
     lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
-}
-
-addModulesInfo(){
-    local container=$1
-    local commit_id
-    commit_id=$(getCommitID "$container" /usr/local/src/misp-modules)
-    local date
-    date=$(date '+%Y-%m-%d %H:%M:%S')
-
-    # Modify the JSON template as needed using jq
-    jq --arg commit_id "$commit_id" --arg date "$date" \
-   '.commit_id = $commit_id | .creation_date = $date' \
-   "$MODULES_INFO_TEMPLATE_FILE" > /tmp/info.json
-
-    lxc exec "$container" -- mkdir -p /etc/misp_modules_info
-    lxc file push /tmp/info.json ${container}/etc/misp_modules_info/
-    rm /tmp/info.json
 }
 
 usage() {
@@ -374,12 +374,13 @@ createLXDImage(){
             exportImage "$container_name" "$new_name" "$OUTPUTDIR"
             ;;
         "Modules" )
-            local commit_id
-            commit_id=$(getCommitID "$container_name" /usr/local/src/misp-modules)
             local version
-            version=$(getVersionGitTag "$container_name" /usr/local/src/misp-modules "www-data")
+            version=$(lxc exec $container_name -- bash -c "
+                source /var/www/MISP/modules/bin/activate &&
+                pip show misp-modules | grep 'Version:' | awk '{print \$2}'
+            ")
             local new_name
-            new_name=${image_name}_${version}_${commit_id}.tar.gz
+            new_name=${image_name}_${version}.tar.gz
             exportImage "$container_name" "$new_name" "$OUTPUTDIR"
             ;;
     esac
@@ -628,7 +629,6 @@ fi
 if $MODULES; then
     lxc launch $UBUNTU "$MODULES_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     installMISPModules "$MODULES_CONTAINER"
-    addModulesInfo "$MODULES_CONTAINER"
 
     sleep 10
     if [ "$(lxc exec "$MODULES_CONTAINER" systemctl is-active misp-modules)" = "active" ]; then
