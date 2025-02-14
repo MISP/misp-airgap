@@ -95,7 +95,7 @@ installMISP(){
     fi
 
     lxc exec "$container_name" -- bash -c "echo 'misp ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/misp"
-    lxc exec "$container_name" -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/valkey/build/AIRGAP_INSTALL.sh
+    lxc exec "$container_name" -- wget --no-cache -O /tmp/AIRGAP_INSTALL.sh https://raw.githubusercontent.com/MISP/misp-airgap/main/build/AIRGAP_INSTALL.sh
     lxc exec "$container_name" -- sudo -u "misp" -H sh -c "sudo bash /tmp/AIRGAP_INSTALL.sh -c -u"
     lxc exec "$container_name" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
@@ -486,6 +486,7 @@ installValkeyApt(){
     lxc exec "$container" -- apt update
     lxc exec "$container" -- apt upgrade -y
     lxc exec "$container" -- apt install valkey-server -y
+    lxc exec "$container" -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/valkey/valkey.conf
     lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
