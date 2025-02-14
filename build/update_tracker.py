@@ -10,6 +10,7 @@ from pathlib import Path
 
 BUILD_PATH = "/opt/misp_airgap/build"
 
+
 class Repo:
     """Base class for repository tracking and update checking."""
 
@@ -30,22 +31,22 @@ class Repo:
 
     def _get_latest_update(self):
         raise NotImplementedError
-    
+
     def _save_state(self):
         try:
-            with open(f'{BUILD_PATH}/systemd/state.json', 'r') as file:
+            with open(f"{BUILD_PATH}/systemd/state.json", "r") as file:
                 states = json.load(file)
         except FileNotFoundError:
             states = {}
 
         states[self.id] = self.last_seen_update
 
-        with open(f'{BUILD_PATH}/systemd/state.json', 'w') as file:
+        with open(f"{BUILD_PATH}/systemd/state.json", "w") as file:
             json.dump(states, file)
-        
+
     def load_state(self):
         try:
-            with open(f'{BUILD_PATH}/systemd/state.json', 'r') as file:
+            with open(f"{BUILD_PATH}/systemd/state.json", "r") as file:
                 states = json.load(file)
         except FileNotFoundError:
             states = {}
@@ -55,18 +56,25 @@ class Repo:
     def build(self) -> None:
         if self._check_for_new_update():
             try:
-                cmd = [f'{BUILD_PATH}/build.sh'] + self.args + ["-o", self.outputdir]
+                cmd = [f"{BUILD_PATH}/build.sh"] + self.args + ["-o", self.outputdir]
                 print(f"Running {cmd}")
+                return
                 result = subprocess.run(cmd, check=False)
                 if result.returncode != 0:
                     print(f"Failed to run {cmd} for {self.id}")
                     return
-                most_recent_dir = max((d for d in Path(self.outputdir).iterdir() if d.is_dir()), key=os.path.getctime, default=None)
+                most_recent_dir = max(
+                    (d for d in Path(self.outputdir).iterdir() if d.is_dir()),
+                    key=os.path.getctime,
+                    default=None,
+                )
                 relative_path = most_recent_dir.relative_to(Path(self.outputdir))
                 if os.path.exists(f"{self.outputdir}/latest_{self.name}"):
                     os.remove(f"{self.outputdir}/latest_{self.name}")
                 os.symlink(relative_path, f"{self.outputdir}/latest_{self.name}")
-                print(f"Created symlink {self.outputdir}/latest_{self.name} to {relative_path}")
+                print(
+                    f"Created symlink {self.outputdir}/latest_{self.name} to {relative_path}"
+                )
                 self._save_state()
             except Exception as e:
                 print(f"Failed to run {cmd} for {self.id}: {e}")
@@ -75,26 +83,32 @@ class Repo:
         files = os.listdir(self.outputdir)
         repo_images = [f for f in files if f.startswith(self.name)]
         if len(repo_images) > num_to_keep:
-            repo_images.sort(key=lambda x: os.path.getmtime(os.path.join(self.outputdir, x)))
+            repo_images.sort(
+                key=lambda x: os.path.getmtime(os.path.join(self.outputdir, x))
+            )
             for image in repo_images[:-num_to_keep]:
                 shutil.rmtree(os.path.join(self.outputdir, image))
+
 
 class GitHub(Repo):
     """Class for tracking GitHub repositories."""
 
-    def __init__(self, id: str, mode: str, args: List[str], name: str, outputdir: str) -> None:
+    def __init__(
+        self, id: str, mode: str, args: List[str], name: str, outputdir: str
+    ) -> None:
         super().__init__(id, args, name, outputdir)
         self.mode = mode
 
     def _get_latest_update(self) -> Optional[str]:
         print(f"Fetching {self.mode} for {self.id}")
-        url=f'https://api.github.com/repos/{self.id}/{self.mode}'
+        url = f"https://api.github.com/repos/{self.id}/{self.mode}"
         response = requests.get(url)
         if response.status_code == 200:
-            return response.json()[0]['sha']
+            return response.json()[0]["sha"]
         else:
             print(f"Failed to fetch {self.mode} for {self.id}")
             return None
+
 
 class APT(Repo):
     """Class for tracking APT packages."""
@@ -105,9 +119,9 @@ class APT(Repo):
     def _get_latest_update(self) -> Optional[str]:
         try:
             cmd = ["apt-cache", "policy", self.id]
-            print (f"Running {cmd}")
-            output = subprocess.check_output(cmd).decode('utf-8')
-            match = re.search(r'Candidate: (\S+)', output)
+            print(f"Running {cmd}")
+            output = subprocess.check_output(cmd).decode("utf-8")
+            match = re.search(r"Candidate: (\S+)", output)
             if match:
                 return match.group(1)
             else:
@@ -115,18 +129,29 @@ class APT(Repo):
         except:
             return None
 
+
 def main():
-    with open(f'{BUILD_PATH}/conf/tracker.json') as f:
+    with open(f"{BUILD_PATH}/conf/tracker.json") as f:
         config = json.load(f)
 
     repos = []
     for repo in config["github"]:
-        repos.append(GitHub(repo["id"], repo["mode"], repo["args"], repo["name"], config["outputdir"]))
+        repos.append(
+            GitHub(
+                repo["id"],
+                repo["mode"],
+                repo["args"],
+                repo["name"],
+                config["outputdir"],
+            )
+        )
 
     aptpkg = []
     for package in config["apt"]:
-        aptpkg.append(APT(package["id"], package["args"], package["name"], config["outputdir"]))
-    
+        aptpkg.append(
+            APT(package["id"], package["args"], package["name"], config["outputdir"])
+        )
+
     for repo in repos + aptpkg:
         if config["sign"]:
             repo.args.append("-s")
@@ -140,6 +165,7 @@ def main():
             package.build()
             package.cleanup(num_to_keep=3)
         sleep(config["check_interval"])
-    
+
+
 if __name__ == "__main__":
     main()

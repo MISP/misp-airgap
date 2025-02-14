@@ -28,6 +28,7 @@ setVars(){
     UBUNTU="ubuntu:24.04"
     BUILD_REDIS_VERSION=false
     BUILD_MYSQL_VERSION=false
+    BUILD_VALKEY_VERSION=false
     REDIS_SERVICE_FILE="$PATH_TO_BUILD/conf/redis-server.service"
     VALKEY_SERVICE_FILE="$PATH_TO_BUILD/conf/valkey.service"
 }
@@ -479,7 +480,16 @@ installRedisSource(){
     lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
-installValkey(){
+installValkeyApt(){
+    local container=$1
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install valkey-server -y
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+}
+
+installValkeySource(){
     local container=$1
     local version=$2
     lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
@@ -536,7 +546,7 @@ checkSoftwareDependencies "${DEPEDENCIES[@]}"
 setVars
 setDefaultArgs
 
-VALID_ARGS=$(getopt -o ho:s --long help,outputdir:,misp,mysql,redis,modules,misp-name:,mysql-name:,redis-name:,valkey-name:,modules-name:,sign,valkey-version:,redis-version:,mysql-version:  -- "$@")
+VALID_ARGS=$(getopt -o ho:s --long help,outputdir:,misp,mysql,redis,valkey,modules,misp-name:,mysql-name:,redis-name:,valkey-name:,modules-name:,sign,valkey-version:,redis-version:,mysql-version:  -- "$@")
 if [[ $? -ne 0 ]]; then
     exit 1;
 fi
@@ -559,7 +569,11 @@ while [ $# -gt 0 ]; do
         --redis)
             redis=true
             shift 
-            ;; 
+            ;;
+        --valkey)
+            valkey=true
+            shift 
+            ;;
         --modules)
             modules=true
             shift 
@@ -591,7 +605,7 @@ while [ $# -gt 0 ]; do
             ;;
         --valkey-version)
             VALKEY_VERSION=$2
-            valkey=true
+            BUILD_VALKEY_VERSION=true
             shift 2
             ;;
         --mysql-version)
@@ -688,7 +702,13 @@ fi
 if $VALKEY; then
     lxc launch $UBUNTU "$VALKEY_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
     waitForContainer "$VALKEY_CONTAINER"
-    installValkey "$VALKEY_CONTAINER" "$VALKEY_VERSION"
+
+    if $BUILD_VALKEY_VERSION; then
+        installValkeySource "$VALKEY_CONTAINER" "$VALKEY_VERSION"
+    else
+        installValkeyApt "$VALKEY_CONTAINER"
+    fi
+
     createLXDImage "$VALKEY_CONTAINER" "$VALKEY_IMAGE" "Valkey"
     successMessage "Valkey"
 fi
