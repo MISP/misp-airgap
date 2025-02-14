@@ -179,7 +179,11 @@ checkForDefault(){
 
 validateArgs(){
     # Check Names
-    local names=("$PROJECT_NAME" "$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        local names=("$PROJECT_NAME" "$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+    else
+        local names=("$PROJECT_NAME" "$MISP_CONTAINER" "$MYSQL_CONTAINER" "$VALKEY_CONTAINER")
+    fi
     for i in "${names[@]}"; do
         if ! checkNamingConvention "$i"; then
             exit 1
@@ -197,7 +201,11 @@ validateArgs(){
     fi
 
     # Check Container Names
-    local containers=("$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        local containers=("$MISP_CONTAINER" "$MYSQL_CONTAINER" "$REDIS_CONTAINER")
+    else
+        local containers=("$MISP_CONTAINER" "$MYSQL_CONTAINER" "$VALKEY_CONTAINER")
+    fi
 
     declare -A name_counts
     for name in "${containers[@]}"; do
@@ -216,7 +224,12 @@ validateArgs(){
     done
 
     # Check for files
-    local files=("$MISP_IMAGE" "$MYSQL_IMAGE" "$REDIS_IMAGE")
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        local files=("$MISP_IMAGE" "$MYSQL_IMAGE" "$REDIS_IMAGE")
+    else
+        local files=("$MISP_IMAGE" "$MYSQL_IMAGE" "$VALKEY_IMAGE")
+    fi
+
     for i in "${files[@]}"; do
         if [ ! -f "$i" ]; then
             error "The specified file $i does not exists"
@@ -237,7 +250,11 @@ validateArgs(){
 
 cleanup(){
     # Remove imported images
-    images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$REDIS_IMAGE_NAME")
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$REDIS_IMAGE_NAME")
+    else
+        images=("$MISP_IMAGE_NAME" "$MYSQL_IMAGE_NAME" "$VALKEY_IMAGE_NAME")
+    fi
     for image in "${images[@]}"; do
         lxc image delete "$image"
     done
@@ -344,31 +361,66 @@ interactiveConfig(){
     read -r -p "MySQL Root Password (default: $default_mysql_root_pwd): " mysql_root_pwd
     MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
 
-    # Ask for Redis image
-    while true; do 
-        read -r -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
-        redis_img=${redis_img:-$default_redis_img}
-        if [ ! -f "$redis_img" ]; then
-            error "The specified file does not exist."
-            continue
+    while true; do
+        read -r -p "Do you want to use Redis or Valkey? (redis/valkey) [default: valkey]: " choice
+        KS_CHOICE=${KS_CHOICE:-valkey}
+        if [[ "$KS_CHOICE" == "redis" || "$KS_CHOICE" == "valkey" ]]; then
+            break
+        else
+            echo "Invalid choice. Please enter 'redis' or 'valkey'."
         fi
-        REDIS_IMAGE=$redis_img
-        break
     done
 
-    # Ask for Redis container name
+    # Ask for Redis/Valkey image
     while true; do
-        read -r -p "Name of the Redis container (default: $default_redis_name): " redis_name
-        REDIS_CONTAINER=${redis_name:-$default_redis_name}
-        if [[ ${nameCheckArray[$REDIS_CONTAINER]+_} ]]; then
-            error "Name '$REDIS_CONTAINER' has already been used. Please choose a different name."
-            continue
+        if [[ "$KS_CHOICE" == "redis" ]]; then
+            read -r -e -p "What is the path to the Redis image (default: $default_redis_img): " redis_img
+            redis_img=${redis_img:-$default_redis_img}
+            if [ ! -f "$redis_img" ]; then
+                error "The specified file does not exist."
+                continue
+            fi
+            REDIS_IMAGE=$redis_img
+            break
+        else
+            read -r -e -p "What is the path to the Valkey image (default: $default_valkey_img): " valkey_img
+            valkey_img=${valkey_img:-$default_valkey_img}
+            if [ ! -f "$valkey_img" ]; then
+                error "The specified file does not exist."
+                continue
+            fi
+            VALKEY_IMAGE=$valkey_img
+            break
         fi
-        if ! checkNamingConvention "$REDIS_CONTAINER"; then
-            continue
+    done
+
+    # Ask for Redis/Valkey container name
+    while true; do
+        if [[ "$KS_CHOICE" == "redis" ]]; then
+            read -r -p "Name of the Redis container (default: $default_redis_name): " redis_name
+            REDIS_CONTAINER=${redis_name:-$default_redis_name}
+            if [[ ${nameCheckArray[$REDIS_CONTAINER]+_} ]]; then
+                error "Name '$REDIS_CONTAINER' has already been used. Please choose a different name."
+                continue
+            fi
+            if ! checkNamingConvention "$REDIS_CONTAINER"; then
+                continue
+            fi
+            nameCheckArray[$REDIS_CONTAINER]=1
+            break
+        else
+            read -r -p "Name of the Valkey container (default: $default_valkey_name): " valkey_name
+            VALKEY_CONTAINER=${valkey_name:-$default_valkey_name}
+            if [[ ${nameCheckArray[$VALKEY_CONTAINER]+_} ]]; then
+                error "Name '$VALKEY_CONTAINER' has already been used. Please choose a different name."
+                continue
+            fi
+            if ! checkNamingConvention "$VALKEY_CONTAINER"; then
+                continue
+            fi
+            nameCheckArray[$VALKEY_CONTAINER]=1
+            break
         fi
-        nameCheckArray[$REDIS_CONTAINER]=1
-        break
     done
 
     # Ask for MISP Modules installation
@@ -438,9 +490,15 @@ interactiveConfig(){
     echo -e "MYSQL_PASSWORD: ${GREEN}$MYSQL_PASSWORD${NC}"
     echo -e "MYSQL_ROOT_PASSWORD: ${GREEN}$MYSQL_ROOT_PASSWORD${NC}"
     echo "--------------------------------------------------------------------------------------------------------------------"
-    echo -e "${BLUE}Redis:${NC}"
-    echo -e "REDIS_IMAGE: ${GREEN}$REDIS_IMAGE${NC}"
-    echo -e "REDIS_CONTAINER: ${GREEN}$REDIS_CONTAINER${NC}"
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        echo -e "${BLUE}Redis:${NC}"
+        echo -e "REDIS_IMAGE: ${GREEN}$REDIS_IMAGE${NC}"
+        echo -e "REDIS_CONTAINER: ${GREEN}$REDIS_CONTAINER${NC}"
+    else
+        echo -e "${BLUE}Valkey:${NC}"
+        echo -e "VALKEY_IMAGE: ${GREEN}$VALKEY_IMAGE${NC}"
+        echo -e "VALKEY_CONTAINER: ${GREEN}$VALKEY_CONTAINER${NC}"
+    fi
     echo "--------------------------------------------------------------------------------------------------------------------"
     echo -e "${BLUE}MISP Modules:${NC}"
     echo -e "MISP Modules: ${GREEN}$MODULES${NC}"
@@ -522,10 +580,19 @@ nonInteractiveConfig(){
                 ;;
             --redis-image)
                 redis_img=$2
+                KS_CHOICE="redis"
                 shift 2
                 ;;
             --redis-name)
                 redis_name=$2
+                shift 2
+                ;;
+            --valkey-image)
+                valkey_img=$2
+                shift 2
+                ;;
+            --valkey-name)
+                valkey_name=$2
                 shift 2
                 ;;
             --no-modules)
@@ -566,6 +633,8 @@ nonInteractiveConfig(){
     MYSQL_ROOT_PASSWORD=${mysql_root_pwd:-$default_mysql_root_pwd}
     REDIS_IMAGE=${redis_img:-$default_redis_img}
     REDIS_CONTAINER=${redis_name:-$default_redis_name}
+    VALKEY_IMAGE=${valkey_img:-$default_valkey_img}
+    VALKEY_CONTAINER=${valkey_name:-$default_valkey_name}
     modules=${modules:-$default_modules}
     MODULES=$(echo "$modules" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
     MODULES_IMAGE=${modules_img:-$default_modules_img}
@@ -574,6 +643,8 @@ nonInteractiveConfig(){
     DB_PARTITION=${db_partition:-$default_db_partition}
     prod=${prod:-$default_prod}
     PROD=$(echo "$prod" | grep -iE '^y(es)?$' > /dev/null && echo true || echo false)
+
+    KS_CHOICE=${KS_CHOICE:-"valkey"}
 }
 
 # ========================== LXD Setup ==========================
@@ -641,12 +712,20 @@ importImages(){
         error "Image '$MYSQL_IMAGE_NAME' already exists."
     fi
     lxc image import "$MYSQL_IMAGE" --alias "$MYSQL_IMAGE_NAME"
-
-    REDIS_IMAGE_NAME=$(generateName "redis")
-    if checkRessourceExist "image" "$REDIS_IMAGE_NAME"; then
-        error "Image '$REDIS_IMAGE_NAME' already exists."
+    
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        REDIS_IMAGE_NAME=$(generateName "redis")
+        if checkRessourceExist "image" "$REDIS_IMAGE_NAME"; then
+            error "Image '$REDIS_IMAGE_NAME' already exists."
+        fi
+        lxc image import "$REDIS_IMAGE" --alias "$REDIS_IMAGE_NAME"
+    else
+        VALKEY_IMAGE_NAME=$(generateName "redis")
+        if checkRessourceExist "image" "$VALKEY_IMAGE_NAME"; then
+            error "Image '$VALKEY_IMAGE_NAME' already exists."
+        fi
+        lxc image import "$VALKEY_IMAGE" --alias "$VALKEY_IMAGE_NAME"
     fi
-    lxc image import "$REDIS_IMAGE" --alias "$REDIS_IMAGE_NAME"
 
     if $MODULES; then
         MODULES_IMAGE_NAME=$(generateName "modules")
@@ -662,7 +741,12 @@ launchContainers(){
     # Launch Containers
     lxc launch $MISP_IMAGE_NAME $MISP_CONTAINER --profile=$APP_PROFILE 
     lxc launch $MYSQL_IMAGE_NAME $MYSQL_CONTAINER --profile=$DB_PROFILE
-    lxc launch $REDIS_IMAGE_NAME $REDIS_CONTAINER --profile=$DB_PROFILE 
+
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        lxc launch $REDIS_IMAGE_NAME $REDIS_CONTAINER --profile=$DB_PROFILE 
+    else
+        lxc launch $VALKEY_IMAGE_NAME $VALKEY_CONTAINER --profile=$DB_PROFILE 
+    fi
     if $MODULES; then
         lxc launch $MODULES_IMAGE_NAME $MODULES_CONTAINER --profile=$APP_PROFILE
     fi
@@ -770,6 +854,14 @@ configureRedisContainer(){
     lxc exec $REDIS_CONTAINER -- systemctl restart redis-server
 }
 
+# ========================== Valkey Configuration ==========================
+
+configureValkey(){
+    lxc exec $VALKEY_CONTAINER -- sed -i "s/^bind .*/bind 0.0.0.0/" "/etc/valkey/valkey.conf"
+    lxc exec $VALKEY_CONTAINER -- sed -i "s/^port .*/port $VALKEY_CONTAINER_PORT/" "/etc/valkey/valkey.conf"
+    lxc exec $VALKEY_CONTAINER -- systemctl restart valkey
+}
+
 # ========================== MISP Configuration ==========================
 
 updateGOWNT () {
@@ -789,8 +881,6 @@ setupGnuPG() {
     GPG_EMAIL_ADDRESS="admin@admin.test"
     GPG_PASSPHRASE="$(openssl rand -hex 32)"
 
-     ${LXC_MISP} -- rm /tmp/gen-key-script
-    
     ${LXC_MISP} -- sudo -u ${WWW_USER} gpg --homedir $PATH_TO_MISP/.gnupg --quick-generate-key --batch --passphrase "$GPG_PASSPHRASE" "$GPG_EMAIL_ADDRESS" ed25519 sign never
 
     # Ensure the webroot directory exists
@@ -947,8 +1037,13 @@ setMISPConfig () {
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_enable" false
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_host" "127.0.0.1"
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_port" 50000
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$REDIS_CONTAINER.lxd"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $REDIS_CONTAINER_PORT
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$REDIS_CONTAINER.lxd"
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $REDIS_CONTAINER_PORT
+    else
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_host" "$VALKEY_CONTAINER.lxd"
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_port" $VALKEY_CONTAINER_PORT
+    fi
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_database" 1
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_redis_namespace" "mispq"
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "Plugin.ZeroMQ_event_notifications_enable" false
@@ -966,8 +1061,13 @@ setMISPConfig () {
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.proposals_block_attributes" false
 
   # Redis block
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$REDIS_CONTAINER.lxd"
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $REDIS_CONTAINER_PORT 
+    else
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_host" "$VALKEY_CONTAINER.lxd"
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_port" $VALKEY_CONTAINER_PORT 
+    fi
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_database" 13
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "MISP.redis_password" ""
 
@@ -1031,8 +1131,13 @@ setMISPConfig () {
 
     # Configure background workers
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.enabled" 1 
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_host" "${REDIS_CONTAINER}.lxd" 
-    ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_port" $REDIS_CONTAINER_PORT 
+    if [[ "$KS_CHOICE" == "redis" ]]; then
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_host" "$REDIS_CONTAINER.lxd" 
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_port" $REDIS_CONTAINER_PORT 
+    else
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_host" "$VALKEY_CONTAINER.lxd" 
+        ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_port" $VALKEY_CONTAINER_PORT 
+    fi
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_database" 13 
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_password" "" 
     ${LXC_MISP} -- ${SUDO_WWW} -- ${CAKE} Admin setSetting "SimpleBackgroundJobs.redis_namespace" "background_jobs" 
@@ -1195,6 +1300,9 @@ default_mysql_root_pwd="misp"
 default_redis_img=""
 default_redis_name=$(generateName "redis")
 
+default_valkey_img=""
+default_valkey_name=$(generateName "valkey")
+
 default_modules="yes"
 default_modules_img=""
 default_modules_name=$(generateName "modules")
@@ -1226,6 +1334,7 @@ CAKE="${PATH_TO_MISP}/app/Console/cake"
 MISP_BASEURL="${MISP_BASEURL:-""}"
 LXC_MISP="lxc exec ${MISP_CONTAINER}"
 REDIS_CONTAINER_PORT="6380"
+VALKEY_CONTAINER_PORT="6380"
 
 INNODB_BUFFER_POOL_SIZE="2147483648"
 INNODB_CHANGE_BUFFERING="none"
@@ -1261,10 +1370,16 @@ info "4" "Configure and Update MySQL DB"
 waitForContainer $MYSQL_CONTAINER
 configureMySQL
 
-# ----------------- Redis config -----------------
-info "5" "Configure Redis"
-waitForContainer $REDIS_CONTAINER
-configureRedisContainer
+# ----------------- Valkey/Redis config -----------------
+if [[ "$KS_CHOICE" == "redis" ]]; then 
+    info "5" "Configure Redis"
+    waitForContainer $REDIS_CONTAINER
+    configureRedisContainer
+else
+    info "5" "Configure Valkey"
+    waitForContainer $VALKEY_CONTAINER
+    configureValkey
+fi
 
 # ----------------- MISP config -----------------
 info "6" "Configure MISP"
@@ -1281,7 +1396,11 @@ ${LXC_MISP} -- sed -i "s/'password' => '.*'/'password' => '$MYSQL_PASSWORD'/" "$
 ${LXC_MISP} -- sh -c "echo 'Admin (root) DB Password: $MYSQL_ROOT_PASSWORD \nUser ($MYSQL_USER) DB Password: $MYSQL_PASSWORD' > /home/misp/mysql.txt"
 
 # Set MISP Redis config
-${LXC_MISP} -- sed -i "s/'host' => 'localhost'/'host' => '$REDIS_CONTAINER.lxd'/; s/'port' => 6379/'port' => $REDIS_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
+if [[ "$KS_CHOICE" == "redis" ]]; then 
+    ${LXC_MISP} -- sed -i "s/'host' => 'localhost'/'host' => '$REDIS_CONTAINER.lxd'/; s/'port' => 6379/'port' => $REDIS_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
+else
+    ${LXC_MISP} -- sed -i "s/'host' => 'localhost'/'host' => '$VALKEY_CONTAINER.lxd'/; s/'port' => 6379/'port' => $VALKEY_CONTAINER_PORT/" /var/www/MISP/app/Plugin/CakeResque/Config/config.php
+fi
 
 initializeDB
 

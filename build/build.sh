@@ -23,11 +23,14 @@ setVars(){
     MISP_CONTAINER=$(generateName "misp")
     MYSQL_CONTAINER=$(generateName "mysql")
     REDIS_CONTAINER=$(generateName "redis")
+    VALKEY_CONTAINER=$(generateName "valkey")
     MODULES_CONTAINER=$(generateName "modules")
     UBUNTU="ubuntu:24.04"
     BUILD_REDIS_VERSION=false
     BUILD_MYSQL_VERSION=false
+    BUILD_VALKEY_VERSION=false
     REDIS_SERVICE_FILE="$PATH_TO_BUILD/conf/redis-server.service"
+    VALKEY_SERVICE_FILE="$PATH_TO_BUILD/conf/valkey.service"
 }
 
 setDefaultArgs(){
@@ -37,6 +40,8 @@ setDefaultArgs(){
     default_mysql=false
     default_redis_image="Redis"
     default_redis=false
+    default_valkey_image="Valkey"
+    default_valkey=false
     default_modules_image="Modules"
     default_modules=false
     default_outputdir=""
@@ -267,6 +272,16 @@ getRedisVersion() {
     echo "$version"
 }
 
+getValkeyVersion() {
+    local container=$1
+    local input
+    input=$(lxc exec $container -- valkey-server --version) 
+    local version
+
+    version=$(echo "$input" | grep -oP 'v=\K[^ ]+' || echo "Version not found")
+    echo "$version"
+}
+
 sign() {
     if ! command -v gpg &> /dev/null; then
         error "GPG is not installed. Please install it before running this script with signing."
@@ -373,6 +388,13 @@ createLXDImage(){
             new_name=${image_name}_${version}.tar.gz
             exportImage "$container_name" "$new_name" "$OUTPUTDIR"
             ;;
+        "Valkey" )
+            local version
+            version=$(getValkeyVersion "$container_name")
+            local new_name
+            new_name=${image_name}_${version}.tar.gz
+            exportImage "$container_name" "$new_name" "$OUTPUTDIR"
+            ;;
         "Modules" )
             local version
             version=$(lxc exec $container_name -- bash -c "
@@ -435,9 +457,9 @@ installRedisSource(){
     lxc exec "$container" -- apt update
     lxc exec "$container" -- apt upgrade -y
     lxc exec "$container" -- apt install -y wget build-essential tcl
-    lxc exec "$container" -- wget http://download.redis.io/releases/redis-$version.tar.gz && \
-    lxc exec "$container" -- tar xzf redis-$version.tar.gz && \
-    lxc exec "$container" --cwd=/root/redis-$version -- make && \
+    lxc exec "$container" -- wget http://download.redis.io/releases/redis-$version.tar.gz 
+    lxc exec "$container" -- tar xzf redis-$version.tar.gz 
+    lxc exec "$container" --cwd=/root/redis-$version -- make 
     lxc exec "$container" --cwd=/root/redis-$version -- make install
     lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
     lxc exec "$container" -- mkdir -p /etc/redis
@@ -456,6 +478,44 @@ installRedisSource(){
     lxc exec "$container" -- systemctl daemon-reload
     lxc exec "$container" -- systemctl enable redis-server
     lxc exec "$container" -- systemctl start redis-server
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+}
+
+installValkeyApt(){
+    local container=$1
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install valkey-server -y
+    lxc exec "$container" -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/valkey/valkey.conf
+    lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
+}
+
+installValkeySource(){
+    local container=$1
+    local version=$2
+    lxc exec "$container" -- sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    lxc exec "$container" -- apt update
+    lxc exec "$container" -- apt upgrade -y
+    lxc exec "$container" -- apt install -y build-essential tcl cmake git
+    lxc exec "$container" -- git clone https://github.com/valkey-io/valkey.git
+    lxc exec "$container" --cwd=/root/valkey -- git checkout $version
+    lxc exec "$container" --cwd=/root/valkey -- make
+    lxc exec "$container" --cwd=/root/valkey -- make install
+    lxc exec "$container" -- mkdir -p /etc/valkey
+    lxc exec "$container" -- cp /root/valkey/valkey.conf /etc/valkey/
+    lxc exec "$container" -- sed -i 's/^protected-mode yes/protected-mode no/' /etc/valkey/valkey.conf
+    lxc file push "$VALKEY_SERVICE_FILE" $container/etc/systemd/system/valkey.service -v
+    lxc exec "$container" -- adduser --system --group --no-create-home valkey
+    lxc exec "$container" -- mkdir -p /var/lib/valkey
+    lxc exec "$container" -- chown valkey:valkey /var/lib/valkey
+    lxc exec "$container" -- chmod 770 /var/lib/valkey
+    lxc exec "$container" -- mkdir -p /var/run/valkey
+    lxc exec "$container" -- chown valkey:valkey /var/run/valkey
+    lxc exec "$container" -- chmod 770 /var/run/valkey
+    lxc exec "$container" -- systemctl daemon-reload
+    lxc exec "$container" -- systemctl enable valkey
+    lxc exec "$container" -- systemctl start valkey
     lxc exec "$container" -- sed -i "/^\$nrconf{restart} = 'a';/s/.*/#\$nrconf{restart} = 'i';/" /etc/needrestart/needrestart.conf
 }
 
@@ -488,7 +548,7 @@ checkSoftwareDependencies "${DEPEDENCIES[@]}"
 setVars
 setDefaultArgs
 
-VALID_ARGS=$(getopt -o ho:s --long help,outputdir:,misp,mysql,redis,modules,misp-name:,mysql-name:,redis-name:,modules-name:,sign,redis-version:,mysql-version:  -- "$@")
+VALID_ARGS=$(getopt -o ho:s --long help,outputdir:,misp,mysql,redis,valkey,modules,misp-name:,mysql-name:,redis-name:,valkey-name:,modules-name:,sign,valkey-version:,redis-version:,mysql-version:  -- "$@")
 if [[ $? -ne 0 ]]; then
     exit 1;
 fi
@@ -512,6 +572,10 @@ while [ $# -gt 0 ]; do
             redis=true
             shift 
             ;;
+        --valkey)
+            valkey=true
+            shift 
+            ;;
         --modules)
             modules=true
             shift 
@@ -528,6 +592,10 @@ while [ $# -gt 0 ]; do
             redis_image=$2
             shift 2
             ;;
+        --valkey-name)
+            valkey_image=$2
+            shift 2 
+            ;;
         --modules-name)
             modules_image=$2
             shift 2
@@ -535,6 +603,11 @@ while [ $# -gt 0 ]; do
         --redis-version)
             REDIS_VERSION=$2
             BUILD_REDIS_VERSION=true
+            shift 2
+            ;;
+        --valkey-version)
+            VALKEY_VERSION=$2
+            BUILD_VALKEY_VERSION=true
             shift 2
             ;;
         --mysql-version)
@@ -559,10 +632,12 @@ done
 MISP=${misp:-$default_misp}
 MYSQL=${mysql:-$default_mysql}
 REDIS=${redis:-$default_redis}
+VALKEY=${valkey:-$default_valkey}
 MODULES=${modules:-$default_modules}
 MISP_IMAGE=${misp_image:-$default_misp_image}
 MYSQL_IMAGE=${mysql_image:-$default_mysql_image}
 REDIS_IMAGE=${redis_image:-$default_redis_image}
+VALKEY_IMAGE=${valkey_image:-$default_valkey_image}
 MODULES_IMAGE=${modules_image:-$default_modules_image}
 OUTPUTDIR=${outputdir:-$default_outputdir}
 SIGN=${sign:-$default_sign}
@@ -572,7 +647,7 @@ if [ ! -e "$OUTPUTDIR" ]; then
     exit 1
 fi
 
-if ! $MISP && ! $MYSQL && ! $REDIS && ! $MODULES; then
+if ! $MISP && ! $MYSQL && ! $REDIS && ! $VALKEY && ! $MODULES; then
     error "No image specified!"
     exit 1
 fi
@@ -624,6 +699,20 @@ if $REDIS; then
 
     createLXDImage "$REDIS_CONTAINER" "$REDIS_IMAGE" "Redis"
     successMessage "Redis"
+fi
+
+if $VALKEY; then
+    lxc launch $UBUNTU "$VALKEY_CONTAINER" -p default --storage "$STORAGE_POOL_NAME" --network "$NETWORK_NAME"
+    waitForContainer "$VALKEY_CONTAINER"
+
+    if $BUILD_VALKEY_VERSION; then
+        installValkeySource "$VALKEY_CONTAINER" "$VALKEY_VERSION"
+    else
+        installValkeyApt "$VALKEY_CONTAINER"
+    fi
+
+    createLXDImage "$VALKEY_CONTAINER" "$VALKEY_IMAGE" "Valkey"
+    successMessage "Valkey"
 fi
 
 if $MODULES; then

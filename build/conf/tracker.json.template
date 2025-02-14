@@ -42,6 +42,15 @@
                 "--redis-name",
                 "Redis"
             ]
+        },
+        {
+            "name": "Vakey",
+            "id": "valkey-server",
+            "args": [
+                "--valkey",
+                "--valkey-name",
+                "Valkey"
+            ]
         }
     ]
 }
