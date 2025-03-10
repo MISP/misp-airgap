@@ -58,7 +58,6 @@ class Repo:
             try:
                 cmd = [f"{BUILD_PATH}/build.sh"] + self.args + ["-o", self.outputdir]
                 print(f"Running {cmd}")
-                return
                 result = subprocess.run(cmd, check=False)
                 if result.returncode != 0:
                     print(f"Failed to run {cmd} for {self.id}")
