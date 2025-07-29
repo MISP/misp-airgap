@@ -526,7 +526,7 @@ interactiveConfig(){
 }
 
 nonInteractiveConfig(){
-    VALID_ARGS=$(getopt -o ph --long help,production,project:,misp-image:,misp-name:,mysql-image:,mysql-name:,mysql-user:,mysql-pwd:,mysql-db:,mysql-root-pwd:,redis-image:,redis-name:,no-modules,modules-image:,modules-name:,app_partition:,db_partition:  -- "$@")
+    VALID_ARGS=$(getopt -o ph --long help,production,project:,misp-image:,misp-name:,mysql-image:,mysql-name:,mysql-user:,mysql-pwd:,mysql-db:,mysql-root-pwd:,redis-image:,redis-name:,valkey-image:,valkey-name:,no-modules,modules-image:,modules-name:,app_partition:,db_partition:  -- "$@")
     if [[ $? -ne 0 ]]; then
         exit 1;
     fi
