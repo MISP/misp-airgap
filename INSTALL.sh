@@ -891,24 +891,41 @@ setupGnuPG() {
 
 }
 
-createRedisSocket(){
-    local file_path="/etc/redis/redis.conf"
-    local lines_to_add="# create a unix domain socket to listen on\nunixsocket /var/run/redis/redis.sock\n# set permissions for the socket\nunixsocketperm 775"
+createValkeySocket(){
+    local file_path="/etc/valkey/valkey.conf"
+    local socket_dir="/run/valkey"
+    local socket_path="$socket_dir/valkey.sock"
+    local php_ini_path="/etc/php/$PHP_VERSION/apache2/php.ini"
 
-    ${LXC_MISP} -- usermod -g www-data redis
-    ${LXC_MISP} -- mkdir -p /var/run/redis/
-    ${LXC_MISP} -- chown -R redis:www-data /var/run/redis
-    ${LXC_MISP} -- cp "$file_path" "$file_path.bak"
-    ${LXC_MISP} -- bash -c "echo -e \"$lines_to_add\" | cat - \"$file_path\" >tempfile && mv tempfile \"$file_path\""
-    ${LXC_MISP} -- usermod -aG redis www-data
-    ${LXC_MISP} -- service redis-server restart
+    ${LXC_MISP} -- mkdir -p "$socket_dir"
+    ${LXC_MISP} -- chown valkey:www-data "$socket_dir"
+    ${LXC_MISP} -- chmod 775 "$socket_dir"
 
-    # Modify php.ini
-    local php_ini_path="/etc/php/$PHP_VERSION/apache2/php.ini" 
-    local socket_path="/var/run/redis/redis.sock"
-    ${LXC_MISP} -- sed -i "s|;session.save_path = \"/var/lib/php/sessions\"|session.save_path = \"$socket_path\"|; s|session.save_handler = files|session.save_handler = redis|" $php_ini_path
-    ${LXC_MISP} -- sudo service apache2 restart
+    ${LXC_MISP} -- usermod -aG valkey www-data
+
+    # Backup config once
+    ${LXC_MISP} -- test -f "$file_path.bak" || cp "$file_path" "$file_path.bak"
+
+    ${LXC_MISP} -- bash -c "grep -q '^unixsocket ' '$file_path' || cat >> '$file_path' <<'EOF'
+
+# Unix socket for local clients
+unixsocket $socket_path
+unixsocketperm 775
+EOF"
+
+    ${LXC_MISP} -- systemctl restart valkey-server
+
+    # PHP sessions via Valkey socket (handler remains 'redis')
+    ${LXC_MISP} -- sed -i \
+      -e "s|^;*session.save_handler *=.*|session.save_handler = redis|" \
+      -e "s|^;*session.save_path *=.*|session.save_path = \"$socket_path\"|" \
+      "$php_ini_path"
+
+    ${LXC_MISP} -- systemctl restart apache2
 }
+
+
+
 
 setMISPConfig () {
     # IF you have logged in prior to running this, it will fail but the fail is NON-blocking
@@ -1383,7 +1400,7 @@ fi
 
 # ----------------- MISP config -----------------
 info "6" "Configure MISP"
-createRedisSocket
+createValkeySocket
 
 # Set MISP DB config
 ${LXC_MISP} -- sed -i "s/'database' => 'misp'/'database' => '$MYSQL_DATABASE'/" $PATH_TO_MISP/app/Config/database.php
