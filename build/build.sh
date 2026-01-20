@@ -50,17 +50,17 @@ setDefaultArgs(){
 
 error() {
     local msg=$1
-    echo -e "${RED}Error: $msg${NC}" > /dev/tty
+    echo -e "${RED}Error: $msg${NC}" > &2
 }
 
 warn() {
     local msg=$1
-    echo -e "${YELLOW}Warning: $msg${NC}" > /dev/tty
+    echo -e "${YELLOW}Warning: $msg${NC}" > &2
 }
 
 okay() {
     local msg=$1
-    echo -e "${GREEN}Info: $msg${NC}" > /dev/tty
+    echo -e "${GREEN}Info: $msg${NC}" > &2
 }
 
 
@@ -223,7 +223,7 @@ Description=MISP modules
 Type=simple
 User=www-data
 Group=www-data
-ExecStart=/var/www/MISP/modules/bin/misp-modules -l 0.0.0.0 -s
+ExecStart=/var/www/MISP/modules/bin/misp-modules -l 0.0.0.0
 Restart=always
 RestartSec=10
 
